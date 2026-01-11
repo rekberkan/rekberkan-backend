@@ -1,175 +1,151 @@
 <?php
 
-declare(strict_types=1);
-
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Deposit\CreateDepositRequest;
-use App\Application\Services\XenditService;
-use App\Http\Resources\DepositResource;
+use App\Http\Controllers\Concerns\ValidatesTenantOwnership;
 use App\Models\Deposit;
-use App\Domain\Payment\Enums\PaymentMethod;
+use App\Models\Wallet;
+use App\Services\Payment\DepositService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Validator;
 
-final class DepositController extends Controller
+class DepositController extends Controller
 {
+    use ValidatesTenantOwnership;
+
     public function __construct(
-        private XenditService $xenditService
+        private DepositService $depositService
     ) {}
 
     /**
-     * Create deposit
+     * Create a new deposit request
      */
-    public function store(CreateDepositRequest $request): JsonResponse
+    public function store(Request $request): JsonResponse
     {
-        $user = $request->user();
-        $wallet = $user->wallet;
-        $tenantId = $this->getTenantId($request);
-
-        // Validate tenant ownership (FIX: Bug #6)
-        $this->validateTenantOwnership($user, $tenantId);
-
-        $deposit = $this->xenditService->createDeposit(
-            tenantId: $tenantId,
-            userId: $user->id,
-            walletId: $wallet->id,
-            amount: $request->amount,
-            method: PaymentMethod::from($request->payment_method),
-            idempotencyKey: $this->getIdempotencyKey($request, 'deposit')
-        );
-
-        return response()->json([
-            'data' => new DepositResource($deposit),
-        ], 201);
-    }
-
-    /**
-     * Get deposit by ID
-     */
-    public function show(string $id): JsonResponse
-    {
-        $tenantId = $this->getTenantId(request());
-
-        $deposit = Deposit::with(['user', 'wallet'])
-            ->where('id', $id)
-            ->where('tenant_id', $tenantId)
-            ->where('user_id', request()->user()->id)
-            ->firstOrFail();
-
-        return response()->json([
-            'data' => new DepositResource($deposit),
+        $validator = Validator::make($request->all(), [
+            'amount' => ['required', 'numeric', 'min:10000', 'max:100000000'],
+            'payment_method' => ['required', 'string', 'in:bank_transfer,va,ewallet,qris'],
+            'payment_provider' => ['required', 'string', 'in:midtrans,xendit'],
         ]);
-    }
 
-    /**
-     * List user deposits with configurable pagination (FIX: Bug #11)
-     */
-    public function index(Request $request): JsonResponse
-    {
-        $tenantId = $this->getTenantId($request);
-        $perPage = min((int) $request->input('per_page', 20), 100);
-
-        $deposits = Deposit::where('tenant_id', $tenantId)
-            ->where('user_id', $request->user()->id)
-            ->orderBy('created_at', 'desc')
-            ->paginate($perPage);
-
-        return response()->json([
-            'data' => DepositResource::collection($deposits),
-            'meta' => [
-                'current_page' => $deposits->currentPage(),
-                'last_page' => $deposits->lastPage(),
-                'per_page' => $deposits->perPage(),
-                'total' => $deposits->total(),
-            ],
-        ]);
-    }
-
-    /**
-     * Webhook endpoint for Xendit
-     * 
-     * Note: Signature verification is handled by VerifyXenditWebhook middleware
-     * (FIX: Bug #1, #4)
-     */
-    public function webhook(Request $request): JsonResponse
-    {
-        $payload = $request->all();
-        $signature = $request->header('X-Callback-Token');
-        $rawPayload = $request->getContent();
+        if ($validator->fails()) {
+            return response()->json([
+                'error' => 'Validation Error',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
 
         try {
-            // Middleware already verified signature and IP
-            $this->xenditService->processDepositWebhook(
-                payload: $payload,
-                signature: $signature,
-                ipAddress: $request->ip(),
-                rawPayload: $rawPayload
+            $user = $request->user();
+            $tenantId = $this->getCurrentTenantId();
+
+            // Validate user belongs to current tenant
+            $this->validateUserTenant($tenantId);
+
+            // Get or create wallet with null check
+            $wallet = $user->wallet;
+            
+            if (!$wallet) {
+                // Create wallet if doesn't exist
+                $wallet = Wallet::create([
+                    'tenant_id' => $tenantId,
+                    'user_id' => $user->id,
+                    'balance' => 0,
+                    'currency' => 'IDR',
+                ]);
+            }
+
+            // Validate wallet belongs to tenant
+            $this->validateTenantOwnership($wallet, $tenantId);
+
+            $deposit = $this->depositService->createDeposit(
+                $user,
+                $wallet,
+                $request->validated(),
+                $tenantId
             );
 
-            return response()->json(['success' => true]);
-        } catch (\InvalidArgumentException $e) {
-            // Business logic error (e.g., deposit not found)
-            \Log::warning('Xendit webhook business error', [
+            return response()->json([
+                'message' => 'Deposit created successfully',
+                'data' => $deposit,
+            ], 201);
+
+        } catch (\Exception $e) {
+            \Log::error('Deposit creation failed', [
                 'error' => $e->getMessage(),
-                'payload' => $payload,
+                'user_id' => $request->user()->id,
+                'tenant_id' => $tenantId ?? null,
             ]);
 
             return response()->json([
-                'success' => false,
-                'error' => 'Invalid request',
-            ], 400);
-        } catch (\Throwable $e) {
-            // System error (FIX: Bug #14 - better error handling)
-            \Log::error('Xendit webhook system error', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'error' => 'Internal server error',
+                'error' => 'Deposit Creation Failed',
+                'message' => 'An error occurred while creating deposit',
             ], 500);
         }
     }
 
     /**
-     * Get tenant ID from request header
+     * Get user's deposit history with tenant scoping
      */
-    private function getTenantId(Request $request): int
+    public function index(Request $request): JsonResponse
     {
-        $tenantId = $request->header('X-Tenant-ID');
-        
-        if (!$tenantId || !is_numeric($tenantId)) {
-            abort(400, 'Invalid or missing X-Tenant-ID header');
-        }
+        try {
+            $user = $request->user();
+            $tenantId = $this->getCurrentTenantId();
 
-        return (int) $tenantId;
+            $this->validateUserTenant($tenantId);
+
+            // Deposits are automatically scoped by tenant via model trait
+            $deposits = Deposit::where('user_id', $user->id)
+                ->with(['wallet'])
+                ->orderBy('created_at', 'desc')
+                ->paginate(20);
+
+            return response()->json([
+                'data' => $deposits,
+            ]);
+
+        } catch (\Exception $e) {
+            \Log::error('Failed to fetch deposits', [
+                'error' => $e->getMessage(),
+                'user_id' => $request->user()->id,
+            ]);
+
+            return response()->json([
+                'error' => 'Failed to fetch deposits',
+            ], 500);
+        }
     }
 
     /**
-     * Validate user has access to tenant (FIX: Bug #6)
+     * Get specific deposit with tenant validation
      */
-    private function validateTenantOwnership($user, int $tenantId): void
+    public function show(Request $request, string $id): JsonResponse
     {
-        if (!$user->tenants()->where('tenant_id', $tenantId)->exists()) {
-            abort(403, 'Access denied to this tenant');
-        }
-    }
+        try {
+            $user = $request->user();
+            $tenantId = $this->getCurrentTenantId();
 
-    /**
-     * Generate secure idempotency key (FIX: Bug #3)
-     */
-    private function getIdempotencyKey(Request $request, string $prefix): string
-    {
-        $headerKey = $request->header('X-Idempotency-Key');
-        
-        if ($headerKey && strlen($headerKey) >= 16) {
-            return $headerKey;
-        }
+            $this->validateUserTenant($tenantId);
 
-        return $prefix . '-' . (string) Str::ulid();
+            $deposit = Deposit::where('id', $id)
+                ->where('user_id', $user->id)
+                ->firstOrFail();
+
+            // Tenant scope is automatically applied via model trait
+            // But double-check ownership
+            $this->validateTenantOwnership($deposit, $tenantId);
+
+            return response()->json([
+                'data' => $deposit->load(['wallet']),
+            ]);
+
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json([
+                'error' => 'Deposit not found',
+            ], 404);
+        }
     }
 }
