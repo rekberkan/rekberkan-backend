@@ -18,8 +18,7 @@ return new class extends Migration
             $table->timestamp('read_at')->nullable();
             $table->timestamps();
 
-            $table->index(['tenant_id', 'escrow_id', 'created_at']);
-            $table->index(['sender_type', 'sender_id']);
+            $table->index(['escrow_id', 'created_at']);
         });
     }
 
