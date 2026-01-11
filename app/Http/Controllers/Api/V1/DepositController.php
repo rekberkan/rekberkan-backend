@@ -55,6 +55,11 @@ class DepositController extends Controller
                     'balance' => 0,
                     'currency' => 'IDR',
                 ]);
+                
+                \Log::info('Wallet auto-created during deposit', [
+                    'user_id' => $user->id,
+                    'wallet_id' => $wallet->id,
+                ]);
             }
 
             // Validate wallet belongs to tenant
@@ -63,7 +68,7 @@ class DepositController extends Controller
             $deposit = $this->depositService->createDeposit(
                 $user,
                 $wallet,
-                $request->validated(),
+                $request->all(),
                 $tenantId
             );
 

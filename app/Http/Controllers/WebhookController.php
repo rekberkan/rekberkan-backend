@@ -4,17 +4,34 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
-use App\Domain\Escrow\Services\EscrowService;
+use App\Models\Deposit;
+use App\Models\Wallet;
 use App\Infrastructure\Payment\MidtransGateway;
+use App\Services\LedgerService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class WebhookController extends Controller
 {
+    // IP whitelist for payment gateways
+    private const ALLOWED_IPS = [
+        // Midtrans IPs
+        '103.127.16.0/23',
+        '103.127.18.0/23',
+        '103.208.23.0/24',
+        
+        // Xendit IPs (example)
+        '54.251.0.0/16',
+        
+        // Localhost for development
+        '127.0.0.1',
+        '::1',
+    ];
+
     public function __construct(
         private MidtransGateway $midtrans,
-        private EscrowService $escrowService
+        private LedgerService $ledgerService
     ) {}
 
     /**
@@ -23,6 +40,15 @@ class WebhookController extends Controller
     public function midtransNotification(Request $request)
     {
         try {
+            // Validate IP whitelist
+            if (!$this->isIpAllowed($request->ip())) {
+                Log::warning('Webhook from unauthorized IP', [
+                    'ip' => $request->ip(),
+                    'user_agent' => $request->userAgent(),
+                ]);
+                return response()->json(['message' => 'Unauthorized'], 403);
+            }
+
             $payload = $request->all();
             $signature = $payload['signature_key'] ?? '';
 
@@ -39,7 +65,10 @@ class WebhookController extends Controller
 
             // Verify signature
             if (!$this->midtrans->verifyWebhookSignature($payload, $signature)) {
-                Log::warning('Invalid Midtrans webhook signature', ['order_id' => $orderId]);
+                Log::warning('Invalid Midtrans webhook signature', [
+                    'order_id' => $orderId,
+                    'ip' => $request->ip(),
+                ]);
                 return response()->json(['message' => 'Invalid signature'], 401);
             }
 
@@ -48,8 +77,10 @@ class WebhookController extends Controller
 
             $fraudStatus = $payload['fraud_status'] ?? 'accept';
 
-            // Get deposit record
-            $deposit = DB::table('deposits')->where('order_id', $orderId)->first();
+            // Get deposit record with tenant context
+            $deposit = Deposit::with(['wallet', 'user'])
+                ->where('payment_order_id', $orderId)
+                ->first();
 
             if (!$deposit) {
                 Log::error('Deposit not found for order', ['order_id' => $orderId]);
@@ -69,6 +100,12 @@ class WebhookController extends Controller
             if ($transactionStatus === 'capture' || $transactionStatus === 'settlement') {
                 if ($fraudStatus === 'accept') {
                     $this->processSuccessfulDeposit($deposit);
+                } else {
+                    Log::warning('Payment flagged as fraud', [
+                        'deposit_id' => $deposit->id,
+                        'fraud_status' => $fraudStatus,
+                    ]);
+                    $this->processFailedDeposit($deposit, 'fraud_detected');
                 }
             } elseif ($transactionStatus === 'cancel' || $transactionStatus === 'deny' || $transactionStatus === 'expire') {
                 $this->processFailedDeposit($deposit, $transactionStatus);
@@ -80,6 +117,7 @@ class WebhookController extends Controller
         } catch (\Exception $e) {
             Log::error('Midtrans webhook processing failed', [
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
 
             // Don't expose internal error details
@@ -88,73 +126,114 @@ class WebhookController extends Controller
     }
 
     /**
-     * Process successful deposit.
+     * Process successful deposit using LedgerService.
      */
-    private function processSuccessfulDeposit(object $deposit): void
+    private function processSuccessfulDeposit(Deposit $deposit): void
     {
         DB::transaction(function () use ($deposit) {
-            // Double-check idempotency inside transaction
-            $currentDeposit = DB::table('deposits')->where('id', $deposit->id)->lockForUpdate()->first();
+            // Lock deposit for update (prevents race condition)
+            $deposit = Deposit::where('id', $deposit->id)->lockForUpdate()->first();
             
-            if ($currentDeposit->status === 'completed') {
+            // Double-check idempotency inside transaction
+            if ($deposit->status === 'completed') {
                 Log::info('Deposit already completed in race condition check', [
                     'deposit_id' => $deposit->id,
                 ]);
                 return;
             }
 
+            // Use LedgerService for proper double-entry accounting
+            $this->ledgerService->creditWallet(
+                $deposit->wallet,
+                $deposit->amount,
+                'deposit',
+                "Deposit completed: {$deposit->payment_order_id}",
+                [
+                    'deposit_id' => $deposit->id,
+                    'order_id' => $deposit->payment_order_id,
+                ]
+            );
+
             // Update deposit status
-            DB::table('deposits')->where('id', $deposit->id)->update([
+            $deposit->update([
                 'status' => 'completed',
                 'completed_at' => now(),
-                'updated_at' => now(),
             ]);
 
-            // Credit user wallet using correct field (wallet_id not wallet_account_id)
-            DB::table('account_balances')
-                ->where('account_id', $deposit->wallet_id)
-                ->increment('balance', $deposit->amount);
-
-            // If this is for escrow funding, trigger escrow fund
-            if ($deposit->escrow_id ?? null) {
-                $this->escrowService->fund(
-                    escrowId: $deposit->escrow_id,
-                    userId: $deposit->user_id,
-                    idempotencyKey: "deposit-{$deposit->id}"
-                );
-            }
-
-            Log::info('Deposit completed', ['deposit_id' => $deposit->id]);
+            Log::info('Deposit completed successfully', [
+                'deposit_id' => $deposit->id,
+                'user_id' => $deposit->user_id,
+                'tenant_id' => $deposit->tenant_id,
+                'amount' => $deposit->amount,
+            ]);
         });
     }
 
     /**
      * Process failed deposit.
      */
-    private function processFailedDeposit(object $deposit, string $reason): void
+    private function processFailedDeposit(Deposit $deposit, string $reason): void
     {
-        DB::table('deposits')->where('id', $deposit->id)->update([
+        $deposit->update([
             'status' => 'failed',
             'failure_reason' => $reason,
-            'updated_at' => now(),
         ]);
 
-        Log::info('Deposit failed', ['deposit_id' => $deposit->id, 'reason' => $reason]);
+        Log::info('Deposit failed', [
+            'deposit_id' => $deposit->id,
+            'reason' => $reason,
+        ]);
     }
 
     /**
      * Process pending deposit.
      */
-    private function processPendingDeposit(object $deposit): void
+    private function processPendingDeposit(Deposit $deposit): void
     {
         // Only update if not already completed
-        DB::table('deposits')
-            ->where('id', $deposit->id)
-            ->where('status', '!=', 'completed')
-            ->update([
+        if ($deposit->status !== 'completed') {
+            $deposit->update([
                 'status' => 'pending',
-                'updated_at' => now(),
             ]);
+        }
+    }
+
+    /**
+     * Check if IP is in whitelist.
+     */
+    private function isIpAllowed(string $ip): bool
+    {
+        // Allow in local development
+        if (app()->environment('local')) {
+            return true;
+        }
+
+        foreach (self::ALLOWED_IPS as $allowedRange) {
+            if ($this->ipInRange($ip, $allowedRange)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Check if IP is in CIDR range.
+     */
+    private function ipInRange(string $ip, string $range): bool
+    {
+        // If no CIDR notation, exact match
+        if (strpos($range, '/') === false) {
+            return $ip === $range;
+        }
+
+        [$subnet, $mask] = explode('/', $range);
+        
+        $ipLong = ip2long($ip);
+        $subnetLong = ip2long($subnet);
+        $maskLong = -1 << (32 - (int) $mask);
+        
+        return ($ipLong & $maskLong) === ($subnetLong & $maskLong);
     }
 
     /**

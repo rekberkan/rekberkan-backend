@@ -27,6 +27,9 @@ class Kernel extends HttpKernel
         ],
 
         'api' => [
+            \App\Http\Middleware\RequestIdMiddleware::class,
+            \App\Http\Middleware\CorrelationIdMiddleware::class,
+            \App\Http\Middleware\ResolveTenant::class,
             'throttle:api',
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
         ],
@@ -45,5 +48,7 @@ class Kernel extends HttpKernel
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
         'rate.limit.auth' => \App\Http\Middleware\RateLimitAuthentication::class,
         'rate.limit.financial' => \App\Http\Middleware\RateLimitFinancialOperations::class,
+        'tenant' => \App\Http\Middleware\ResolveTenant::class,
+        'idempotent' => \App\Http\Middleware\IdempotencyMiddleware::class,
     ];
 }
