@@ -14,12 +14,12 @@ return new class extends Migration
     {
         Schema::create('security_events', function (Blueprint $table) {
             $table->uuid('id')->primary();
-            $table->uuid('tenant_id')->nullable()->index();
-            $table->uuid('user_id')->nullable()->index();
+            $table->unsignedBigInteger('tenant_id')->nullable()->index();
+            $table->unsignedBigInteger('user_id')->nullable()->index();
             $table->string('event_type', 50)->index(); // login, logout, token_refresh, device_change, etc.
             $table->string('ip_address', 45);
             $table->string('user_agent', 500)->nullable();
-            $table->uuid('device_id')->nullable()->index();
+            $table->unsignedBigInteger('device_id')->nullable()->index();
             $table->string('country_code', 2)->nullable();
             $table->json('metadata')->nullable(); // Additional context
             $table->enum('severity', ['low', 'medium', 'high', 'critical'])->default('low');
