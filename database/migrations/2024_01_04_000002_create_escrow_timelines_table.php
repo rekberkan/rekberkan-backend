@@ -28,6 +28,7 @@ return new class extends Migration
             RETURNS TRIGGER AS $$
             BEGIN
                 RAISE EXCEPTION 'Escrow timeline records are immutable';
+                RETURN NULL;
             END;
             $$ LANGUAGE plpgsql;
         ");
