@@ -37,7 +37,7 @@ return new class extends Migration
         Schema::create('notification_reads', function (Blueprint $table) {
             $table->id();
             $table->foreignId('notification_id')->constrained()->cascadeOnDelete();
-            $table->timestamp('read_at');
+            $table->timestamp('read_at')->useCurrent();
 
             $table->unique('notification_id');
         });

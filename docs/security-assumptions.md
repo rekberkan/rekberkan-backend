@@ -15,6 +15,7 @@ This document outlines the security assumptions upon which Rekberkan's security 
 - Regular security patches applied
 - Row-Level Security (RLS) policies active
 - Backup encryption enabled
+- TimescaleDB extension installed for hypertable support
 
 **Risk if violated**: Complete data breach, financial fraud, tenant isolation bypass
 

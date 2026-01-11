@@ -14,9 +14,9 @@ return new class extends Migration
             $table->foreignId('tenant_id')->constrained()->cascadeOnDelete();
             $table->foreignId('voucher_id')->constrained()->cascadeOnDelete();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('escrow_id')->nullable()->constrained()->nullOnDelete();
+            $table->foreignUuid('escrow_id')->nullable()->constrained()->nullOnDelete();
             $table->decimal('discount_amount', 20, 2);
-            $table->unsignedBigInteger('posting_batch_id')->nullable();
+            $table->foreignUuid('posting_batch_id')->nullable()->constrained('posting_batches');
             $table->string('idempotency_key', 100)->unique();
             $table->timestamp('created_at');
 

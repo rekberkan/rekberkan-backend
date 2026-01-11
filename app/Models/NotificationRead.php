@@ -14,6 +14,7 @@ class NotificationRead extends Model
 
     protected $fillable = [
         'notification_id',
+        'read_at',
     ];
 
     protected $casts = [

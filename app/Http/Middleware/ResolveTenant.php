@@ -31,7 +31,7 @@ class ResolveTenant
             $request->attributes->set('tenant_id', $tenantId);
 
             // Set PostgreSQL session variable for RLS
-            DB::statement("SET app.tenant_id = ?", [$tenantId]);
+            DB::statement("SET LOCAL app.current_tenant_id = ?", [$tenantId]);
 
             // Add to log context
             \Illuminate\Support\Facades\Log::shareContext([
@@ -77,8 +77,8 @@ class ResolveTenant
      */
     private function validateAndReturnTenantId(mixed $tenantId): ?int
     {
-        if (!is_string($tenantId)) {
-            return null;
+        if (is_int($tenantId)) {
+            return $tenantId > 0 ? $tenantId : null;
         }
 
         if (!ctype_digit($tenantId)) {

@@ -9,6 +9,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Tymon\JWTAuth\Contracts\JWTSubject;
 use Spatie\Permission\Traits\HasRoles;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Facades\Hash;
 
 final class Admin extends Authenticatable implements JWTSubject
@@ -94,9 +95,9 @@ final class Admin extends Authenticatable implements JWTSubject
     }
 
     // Relationships
-    public function auditLogs(): HasMany
+    public function auditLogs(): MorphMany
     {
-        return $this->hasMany(AuditLog::class, 'admin_id');
+        return $this->morphMany(AuditLog::class, 'actor');
     }
 
     public function makerActions(): HasMany
