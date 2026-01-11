@@ -18,13 +18,17 @@ class UserBehaviorLog extends Model
         'metadata',
         'ip_address',
         'user_agent',
+        'severity',      // NEW: for RiskEngine
+        'context',       // NEW: for RiskEngine
     ];
 
     protected $casts = [
         'metadata' => 'array',
+        'context' => 'array',    // NEW: cast to array
         'created_at' => 'datetime',
     ];
 
+    // Relationships
     public function tenant(): BelongsTo
     {
         return $this->belongsTo(Tenant::class);
@@ -33,5 +37,16 @@ class UserBehaviorLog extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    // Helper methods
+    public function isCritical(): bool
+    {
+        return $this->severity === 'critical';
+    }
+
+    public function isHighSeverity(): bool
+    {
+        return in_array($this->severity, ['high', 'critical']);
     }
 }
