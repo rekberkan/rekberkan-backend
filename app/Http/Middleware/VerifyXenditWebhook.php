@@ -14,9 +14,12 @@ use Symfony\Component\HttpFoundation\Response;
  * Middleware: Verify Xendit Webhook Signature and IP
  * 
  * Security features:
- * - HMAC SHA-256 signature verification
+ * - Timestamp validation (FIRST - prevents replay attacks)
  * - IP whitelist validation (if enabled)
- * - Replay attack prevention via timestamp
+ * - HMAC SHA-256 signature verification
+ * 
+ * SECURITY FIX: Bug #1 - Timestamp validation moved before signature check
+ * to prevent replay attack vulnerabilities
  */
 class VerifyXenditWebhook
 {
@@ -35,6 +38,34 @@ class VerifyXenditWebhook
         $rawPayload = $request->getContent();
         $ipAddress = $request->ip();
 
+        // SECURITY FIX: Validate timestamp FIRST to prevent replay attacks
+        // Parse payload early to check timestamp before expensive signature verification
+        $payload = json_decode($rawPayload, true);
+        
+        if (!$payload || !isset($payload['created'])) {
+            Log::warning('Webhook missing timestamp', [
+                'ip' => $ipAddress,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid payload structure',
+            ], 400);
+        }
+
+        // Verify timestamp to prevent replay attacks (MOVED UP)
+        if (!$this->xenditService->validateWebhookTimestamp($payload['created'])) {
+            Log::warning('Webhook timestamp outside drift window', [
+                'ip' => $ipAddress,
+                'timestamp' => $payload['created'],
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Timestamp outside acceptable range',
+            ], 400);
+        }
+
         // Verify IP whitelist if enabled
         if (config('services.xendit.verify_ip', true)) {
             if (!$this->isFromXendit($ipAddress)) {
@@ -49,7 +80,7 @@ class VerifyXenditWebhook
             }
         }
 
-        // Verify signature
+        // Verify signature (AFTER timestamp and IP checks)
         if (!$signature || !$this->xenditService->verifyWebhookSignature($rawPayload, $signature)) {
             Log::warning('Invalid webhook signature', [
                 'ip' => $ipAddress,
@@ -59,20 +90,6 @@ class VerifyXenditWebhook
                 'success' => false,
                 'message' => 'Invalid signature',
             ], 401);
-        }
-
-        // Verify timestamp to prevent replay attacks
-        $payload = json_decode($rawPayload, true);
-        if (!$this->xenditService->validateWebhookTimestamp($payload['created'] ?? null)) {
-            Log::warning('Webhook timestamp outside drift window', [
-                'ip' => $ipAddress,
-                'timestamp' => $payload['created'] ?? 'none',
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Timestamp outside acceptable range',
-            ], 400);
         }
 
         return $next($request);
