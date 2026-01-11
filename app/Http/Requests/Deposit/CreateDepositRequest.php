@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Requests\Deposit;
 
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
-use App\Domain\Payment\Enums\PaymentMethod;
 
 final class CreateDepositRequest extends FormRequest
 {
@@ -19,15 +17,21 @@ final class CreateDepositRequest extends FormRequest
     {
         return [
             'amount' => ['required', 'integer', 'min:10000', 'max:100000000'],
-            'payment_method' => ['required', Rule::in(array_column(PaymentMethod::cases(), 'value'))],
+            'payment_method' => ['required', 'string', 'in:bank_transfer,virtual_account,ewallet'],
         ];
     }
 
+    /**
+     * Get custom validation messages.
+     */
     public function messages(): array
     {
         return [
-            'amount.min' => 'Minimum deposit amount is Rp 100.00',
-            'amount.max' => 'Maximum deposit amount is Rp 1,000,000.00',
+            'amount.required' => 'Amount is required.',
+            'amount.min' => 'Deposit amount must be at least Rp 10,000.',
+            'amount.max' => 'Deposit amount must not exceed Rp 100,000,000.',
+            'payment_method.required' => 'Payment method is required.',
+            'payment_method.in' => 'Invalid payment method selected.',
         ];
     }
 }
