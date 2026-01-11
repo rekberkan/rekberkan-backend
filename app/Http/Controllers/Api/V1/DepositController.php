@@ -9,6 +9,7 @@ use App\Http\Requests\Deposit\CreateDepositRequest;
 use App\Application\Services\XenditService;
 use App\Http\Resources\DepositResource;
 use App\Models\Deposit;
+use App\Domain\Payment\Enums\PaymentMethod;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -31,7 +32,7 @@ final class DepositController extends Controller
             userId: $user->id,
             walletId: $wallet->id,
             amount: $request->amount,
-            method: $request->payment_method,
+            method: PaymentMethod::from($request->payment_method),
             idempotencyKey: $request->header('X-Idempotency-Key') ?? "deposit-{$user->id}-" . time()
         );
 
@@ -45,7 +46,10 @@ final class DepositController extends Controller
      */
     public function show(string $id): JsonResponse
     {
-        $deposit = Deposit::with(['user', 'wallet'])->findOrFail($id);
+        $deposit = Deposit::with(['user', 'wallet'])
+            ->where('id', $id)
+            ->where('user_id', request()->user()->id)
+            ->firstOrFail();
 
         return response()->json([
             'data' => new DepositResource($deposit),
@@ -79,19 +83,25 @@ final class DepositController extends Controller
     {
         $payload = $request->all();
         $signature = $request->header('X-Callback-Token');
+        $rawPayload = $request->getContent();
 
         try {
             $this->xenditService->processDepositWebhook(
                 payload: $payload,
                 signature: $signature,
-                ipAddress: $request->ip()
+                ipAddress: $request->ip(),
+                rawPayload: $rawPayload
             );
 
             return response()->json(['success' => true]);
         } catch (\Throwable $e) {
+            \Log::error('Xendit webhook processing failed', [
+                'error' => $e->getMessage(),
+            ]);
+
             return response()->json([
                 'success' => false,
-                'error' => $e->getMessage(),
+                'error' => 'Webhook processing failed',
             ], 400);
         }
     }

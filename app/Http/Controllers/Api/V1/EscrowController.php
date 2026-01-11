@@ -47,7 +47,14 @@ final class EscrowController extends Controller
      */
     public function show(string $id): JsonResponse
     {
-        $escrow = Escrow::with(['buyer', 'seller', 'timeline'])->findOrFail($id);
+        $userId = request()->user()->id;
+        $escrow = Escrow::with(['buyer', 'seller', 'timeline'])
+            ->where('id', $id)
+            ->where(function ($query) use ($userId) {
+                $query->where('buyer_id', $userId)
+                    ->orWhere('seller_id', $userId);
+            })
+            ->firstOrFail();
 
         return response()->json([
             'data' => new EscrowResource($escrow),

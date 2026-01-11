@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Services\ChatService;
+use App\Models\Escrow;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -47,8 +48,8 @@ class ChatController extends Controller
             $perPage = $request->input('per_page', 50);
 
             $messages = $this->chatService->getChatMessages(
-                $chatId,
-                $userId,
+                Escrow::findOrFail($chatId),
+                $request->user(),
                 $page,
                 $perPage
             );
@@ -76,13 +77,10 @@ class ChatController extends Controller
         ]);
 
         try {
-            $userId = $request->user()->id;
-
             $message = $this->chatService->sendMessage(
-                $chatId,
-                $userId,
-                $validated['message'],
-                $validated['attachment_url'] ?? null
+                Escrow::findOrFail($chatId),
+                $request->user(),
+                $validated['message']
             );
 
             return response()->json([
@@ -109,8 +107,7 @@ class ChatController extends Controller
     public function markAsRead(Request $request, string $chatId)
     {
         try {
-            $userId = $request->user()->id;
-            $this->chatService->markAsRead($chatId, $userId);
+            $this->chatService->markAsRead(Escrow::findOrFail($chatId), $request->user());
 
             return response()->json([
                 'success' => true,

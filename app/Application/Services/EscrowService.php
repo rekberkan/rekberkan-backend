@@ -209,6 +209,10 @@ final class EscrowService
                 );
             }
 
+            if (!$isAutoRelease && !in_array($userId, [$escrow->buyer_id, $escrow->seller_id], true)) {
+                throw new \InvalidArgumentException('Unauthorized');
+            }
+
             // Release funds to seller (PRESENTMENT phase)
             $settlementBatchId = $this->ledgerService->releaseFunds(
                 tenantId: $escrow->tenant_id,
@@ -264,6 +268,10 @@ final class EscrowService
                 );
             }
 
+            if (!$isAutoRefund && !in_array($userId, [$escrow->buyer_id, $escrow->seller_id], true)) {
+                throw new \InvalidArgumentException('Unauthorized');
+            }
+
             // Refund to buyer (REVERSAL phase)
             $reversalBatchId = $this->ledgerService->refundFunds(
                 tenantId: $escrow->tenant_id,
@@ -314,6 +322,10 @@ final class EscrowService
                 throw new InvalidStateTransitionException(
                     "Cannot dispute escrow in {$escrow->status->value} status"
                 );
+            }
+
+            if (!in_array($userId, [$escrow->buyer_id, $escrow->seller_id], true)) {
+                throw new \InvalidArgumentException('Unauthorized');
             }
 
             $escrow->update([

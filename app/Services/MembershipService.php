@@ -3,6 +3,10 @@
 namespace App\Services;
 
 use App\Models\Membership;
+use App\Models\Wallet;
+use App\Models\AccountBalance;
+use App\Models\Escrow;
+use App\Domain\Ledger\Enums\AccountType;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -88,6 +92,7 @@ class MembershipService
      */
     private function changeTier(Membership $membership, string $newTier): void
     {
+        $oldTier = $membership->tier;
         $oldConfig = Membership::getTierConfig($membership->tier);
         $newConfig = Membership::getTierConfig($newTier);
 
@@ -100,7 +105,7 @@ class MembershipService
             
             $this->processPayment(
                 $membership->user_id,
-                (int) $proratedAmount,
+                (int) round($proratedAmount),
                 $membership->payment_method
             );
         }
@@ -112,7 +117,7 @@ class MembershipService
 
         Log::info('Membership tier changed', [
             'user_id' => $membership->user_id,
-            'old_tier' => $membership->tier,
+            'old_tier' => $oldTier,
             'new_tier' => $newTier,
         ]);
     }
@@ -184,13 +189,46 @@ class MembershipService
         int $amount,
         string $paymentMethod
     ): void {
-        // TODO: Integrate with WalletService or PaymentService
-        // For now, just log
-        Log::info('Membership payment processed', [
-            'user_id' => $userId,
-            'amount' => $amount,
-            'method' => $paymentMethod,
-        ]);
+        if ($amount <= 0) {
+            return;
+        }
+
+        if ($paymentMethod !== 'wallet') {
+            throw new \Exception('Unsupported payment method');
+        }
+
+        DB::transaction(function () use ($userId, $amount, $paymentMethod) {
+            $wallet = Wallet::where('user_id', $userId)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($wallet->available_balance < $amount) {
+                throw new \Exception('Insufficient wallet balance');
+            }
+
+            $newBalance = $wallet->available_balance - $amount;
+
+            $wallet->update([
+                'available_balance' => $newBalance,
+            ]);
+
+            AccountBalance::updateOrCreate(
+                [
+                    'tenant_id' => $wallet->tenant_id,
+                    'account_type' => AccountType::CUSTOMER_AVAILABLE,
+                    'account_id' => $wallet->id,
+                ],
+                [
+                    'balance' => $newBalance,
+                ]
+            );
+
+            Log::info('Membership payment processed', [
+                'user_id' => $userId,
+                'amount' => $amount,
+                'method' => $paymentMethod,
+            ]);
+        });
     }
 
     /**
@@ -209,5 +247,34 @@ class MembershipService
         }
 
         return $result;
+    }
+
+    public function getUsageStats(int $userId, string $tier, ?Membership $membership = null): array
+    {
+        $benefits = Membership::getTierConfig($tier)['benefits'];
+        $discountRate = $benefits['escrow_fee_discount'] ?? 0;
+
+        $startOfDay = now()->startOfDay();
+        $dailyTransactionsUsed = Escrow::where(function ($query) use ($userId) {
+            $query->where('buyer_id', $userId)
+                ->orWhere('seller_id', $userId);
+        })
+            ->where('created_at', '>=', $startOfDay)
+            ->count();
+
+        $feeQuery = Escrow::where('buyer_id', $userId);
+        if ($membership?->started_at) {
+            $feeQuery->where('created_at', '>=', $membership->started_at);
+        }
+
+        $feeTotal = $feeQuery->sum('fee_amount');
+        $totalFeeSaved = $discountRate > 0
+            ? (int) round($feeTotal * ($discountRate / 100))
+            : 0;
+
+        return [
+            'daily_transactions_used' => $dailyTransactionsUsed,
+            'total_fee_saved' => $totalFeeSaved,
+        ];
     }
 }

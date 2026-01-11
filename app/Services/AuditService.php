@@ -42,6 +42,11 @@ class AuditService
      */
     protected function calculateRecordHash(array $data): string
     {
+        $createdAt = $data['created_at'];
+        if (is_string($createdAt)) {
+            $createdAt = \Carbon\Carbon::parse($createdAt);
+        }
+
         $hashInput = json_encode([
             'tenant_id' => $data['tenant_id'],
             'event_type' => $data['event_type'],
@@ -53,7 +58,7 @@ class AuditService
             'user_agent' => $data['user_agent'],
             'metadata' => $data['metadata'],
             'prev_hash' => $data['prev_hash'],
-            'created_at' => $data['created_at']->toIso8601String(),
+            'created_at' => $createdAt?->toIso8601String(),
         ], JSON_THROW_ON_ERROR);
 
         return hash('sha256', $hashInput);
@@ -68,7 +73,9 @@ class AuditService
 
     protected function getCurrentTenantId(): int
     {
-        return (int) DB::select("SELECT current_setting('app.current_tenant_id')::bigint as tenant_id")[0]->tenant_id;
+        $result = DB::selectOne("SELECT current_setting('app.current_tenant_id', true) as tenant_id");
+
+        return $result && $result->tenant_id ? (int) $result->tenant_id : 0;
     }
 
     public function verifyChainIntegrity(int $tenantId): array

@@ -22,22 +22,22 @@ class AdminConfigController extends Controller
         try {
             $config = [
                 'risk_thresholds' => [
-                    'low' => config('risk.thresholds.low', 30),
-                    'medium' => config('risk.thresholds.medium', 50),
-                    'high' => config('risk.thresholds.high', 70),
-                    'critical' => config('risk.thresholds.critical', 90),
+                    'low' => Cache::get('risk.config.risk_thresholds_low', config('risk.thresholds.low', 30)),
+                    'medium' => Cache::get('risk.config.risk_thresholds_medium', config('risk.thresholds.medium', 50)),
+                    'high' => Cache::get('risk.config.risk_thresholds_high', config('risk.thresholds.high', 70)),
+                    'critical' => Cache::get('risk.config.risk_thresholds_critical', config('risk.thresholds.critical', 90)),
                 ],
-                'auto_block_threshold' => config('risk.auto_block_threshold', 90),
-                'manual_review_threshold' => config('risk.manual_review_threshold', 70),
-                'max_transaction_amount' => config('risk.max_transaction_amount', 100000000),
+                'auto_block_threshold' => Cache::get('risk.config.auto_block_threshold', config('risk.auto_block_threshold', 90)),
+                'manual_review_threshold' => Cache::get('risk.config.manual_review_threshold', config('risk.manual_review_threshold', 70)),
+                'max_transaction_amount' => Cache::get('risk.config.max_transaction_amount', config('risk.max_transaction_amount', 100000000)),
                 'velocity_checks' => [
-                    'enabled' => config('risk.velocity_checks.enabled', true),
-                    'max_daily_transactions' => config('risk.velocity_checks.max_daily', 10),
-                    'max_daily_volume' => config('risk.velocity_checks.max_volume', 50000000),
+                    'enabled' => Cache::get('risk.config.velocity_checks_enabled', config('risk.velocity_checks.enabled', true)),
+                    'max_daily_transactions' => Cache::get('risk.config.velocity_checks_max_daily_transactions', config('risk.velocity_checks.max_daily', 10)),
+                    'max_daily_volume' => Cache::get('risk.config.velocity_checks_max_daily_volume', config('risk.velocity_checks.max_volume', 50000000)),
                 ],
                 'geo_restrictions' => [
-                    'enabled' => config('risk.geo_restrictions.enabled', false),
-                    'blocked_countries' => config('risk.geo_restrictions.blocked_countries', []),
+                    'enabled' => Cache::get('risk.config.geo_restrictions_enabled', config('risk.geo_restrictions.enabled', false)),
+                    'blocked_countries' => Cache::get('risk.config.geo_restrictions_blocked_countries', config('risk.geo_restrictions.blocked_countries', [])),
                 ],
             ];
 
@@ -102,14 +102,14 @@ class AdminConfigController extends Controller
     {
         try {
             $config = [
-                'maintenance_mode' => config('app.maintenance', false),
-                'registration_enabled' => config('app.registration_enabled', true),
-                'kyc_required' => config('app.kyc_required', true),
-                'min_deposit' => config('payment.limits.deposit.min'),
-                'max_deposit' => config('payment.limits.deposit.max'),
-                'min_withdrawal' => config('payment.limits.withdrawal.min'),
-                'max_withdrawal' => config('payment.limits.withdrawal.max'),
-                'fees' => config('payment.fees'),
+                'maintenance_mode' => Cache::get('system.config.maintenance_mode', config('app.maintenance', false)),
+                'registration_enabled' => Cache::get('system.config.registration_enabled', config('app.registration_enabled', true)),
+                'kyc_required' => Cache::get('system.config.kyc_required', config('app.kyc_required', true)),
+                'min_deposit' => Cache::get('system.config.min_deposit', config('payment.limits.deposit.min')),
+                'max_deposit' => Cache::get('system.config.max_deposit', config('payment.limits.deposit.max')),
+                'min_withdrawal' => Cache::get('system.config.min_withdrawal', config('payment.limits.withdrawal.min')),
+                'max_withdrawal' => Cache::get('system.config.max_withdrawal', config('payment.limits.withdrawal.max')),
+                'fees' => Cache::get('system.config.fees', config('payment.fees')),
             ];
 
             return response()->json([

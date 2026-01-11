@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\Admin;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -41,21 +42,14 @@ class CheckAdminRole
      */
     private function isAdmin($user): bool
     {
-        // Option 1: Check role field
-        if (isset($user->role) && $user->role === 'admin') {
+        if ($user instanceof Admin) {
+            return (bool) $user->is_active;
+        }
+
+        if (method_exists($user, 'hasRole') && $user->hasRole('admin')) {
             return true;
         }
 
-        // Option 2: Check is_admin boolean field
-        if (isset($user->is_admin) && $user->is_admin === true) {
-            return true;
-        }
-
-        // Option 3: Check via roles table (if using Spatie/Laravel Permission)
-        // if ($user->hasRole('admin')) {
-        //     return true;
-        // }
-
-        return false;
+        return (bool) ($user->is_admin ?? false);
     }
 }

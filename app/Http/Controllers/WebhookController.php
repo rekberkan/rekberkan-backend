@@ -35,8 +35,17 @@ class WebhookController extends Controller
             // Log webhook
             $this->logWebhook('midtrans', $payload);
 
-            $orderId = $payload['order_id'];
-            $transactionStatus = $payload['transaction_status'];
+            $orderId = $payload['order_id'] ?? null;
+            $transactionStatus = $payload['transaction_status'] ?? null;
+
+            if (!$orderId || !$transactionStatus) {
+                Log::warning('Midtrans webhook missing required fields', [
+                    'order_id' => $orderId,
+                    'transaction_status' => $transactionStatus,
+                ]);
+
+                return response()->json(['message' => 'Missing required fields'], 422);
+            }
             $fraudStatus = $payload['fraud_status'] ?? 'accept';
 
             // Get deposit record
@@ -75,6 +84,13 @@ class WebhookController extends Controller
     private function processSuccessfulDeposit(object $deposit): void
     {
         DB::transaction(function () use ($deposit) {
+            if (($deposit->status ?? null) === 'completed') {
+                Log::info('Deposit already completed, skipping credit', [
+                    'deposit_id' => $deposit->id,
+                ]);
+                return;
+            }
+
             // Update deposit status
             DB::table('deposits')->where('id', $deposit->id)->update([
                 'status' => 'completed',
@@ -84,7 +100,7 @@ class WebhookController extends Controller
 
             // Credit user wallet
             DB::table('account_balances')
-                ->where('account_id', $deposit->wallet_account_id)
+                ->where('account_id', $deposit->wallet_id)
                 ->increment('balance', $deposit->amount);
 
             // If this is for escrow funding, trigger escrow fund

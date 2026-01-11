@@ -86,6 +86,7 @@ final class AuthService
             ]);
 
             return [
+                'user' => $user,
                 'access_token' => $accessToken,
                 'refresh_token' => $refreshToken->id,
                 'token_type' => 'Bearer',
