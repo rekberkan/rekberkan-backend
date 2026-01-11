@@ -45,7 +45,7 @@ class ResolveTenant
     /**
      * Resolve tenant ID from request sources.
      */
-    private function resolveTenantId(Request $request): ?string
+    private function resolveTenantId(Request $request): ?int
     {
         // 1. Try subdomain
         $host = $request->getHost();
@@ -60,8 +60,8 @@ class ResolveTenant
 
         // 3. Try JWT claim
         $user = $request->user();
-        if ($user && method_exists($user, 'tenant_id')) {
-            return $user->tenant_id;
+        if ($user && isset($user->tenant_id)) {
+            return $this->validateAndReturnTenantId($user->tenant_id);
         }
 
         // 4. Try query parameter (for webhooks)
@@ -75,17 +75,18 @@ class ResolveTenant
     /**
      * Validate tenant ID format and existence.
      */
-    private function validateAndReturnTenantId(mixed $tenantId): ?string
+    private function validateAndReturnTenantId(mixed $tenantId): ?int
     {
-        if (!is_string($tenantId)) {
-            return null;
+        if (is_int($tenantId)) {
+            return $tenantId > 0 ? $tenantId : null;
         }
 
-        // Validate UUID format
-        if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $tenantId)) {
-            return null;
+        if (is_string($tenantId) && ctype_digit($tenantId)) {
+            $parsedId = (int) $tenantId;
+
+            return $parsedId > 0 ? $parsedId : null;
         }
 
-        return $tenantId;
+        return null;
     }
 }
