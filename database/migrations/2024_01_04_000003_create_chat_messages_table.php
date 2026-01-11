@@ -13,13 +13,13 @@ return new class extends Migration
             $table->foreignId('tenant_id')->constrained()->onDelete('cascade');
             $table->foreignUuid('escrow_id')->constrained()->onDelete('cascade');
             $table->morphs('sender');
-            $table->text('message');
+            $table->text('body');
             $table->json('attachments')->nullable();
             $table->timestamp('read_at')->nullable();
             $table->timestamps();
 
             $table->index(['tenant_id', 'escrow_id', 'created_at']);
-            $table->index(['escrow_id', 'created_at']);
+            $table->index(['sender_type', 'sender_id']);
         });
     }
 
