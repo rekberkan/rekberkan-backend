@@ -137,10 +137,8 @@ class EscrowService
         return DB::transaction(function () use ($escrowId, $userId) {
             $escrow = $this->getEscrow($escrowId);
 
-            // Only recipient can mark in progress
-            if ($escrow->recipient_id !== $userId) {
-                throw new \Exception('Only recipient can mark escrow in progress');
-            }
+            // Authorization check
+            $this->verifyUserIsRecipient($escrow, $userId);
 
             $currentStatus = EscrowStatus::from($escrow->status);
             if (!$currentStatus->canTransitionTo(EscrowStatus::IN_PROGRESS)) {
@@ -164,9 +162,8 @@ class EscrowService
         return DB::transaction(function () use ($escrowId, $userId, $proofUrl) {
             $escrow = $this->getEscrow($escrowId);
 
-            if ($escrow->recipient_id !== $userId) {
-                throw new \Exception('Only recipient can mark as delivered');
-            }
+            // Authorization check
+            $this->verifyUserIsRecipient($escrow, $userId);
 
             $currentStatus = EscrowStatus::from($escrow->status);
             if (!$currentStatus->canTransitionTo(EscrowStatus::DELIVERED)) {
@@ -198,14 +195,12 @@ class EscrowService
         return DB::transaction(function () use ($escrowId, $userId, $idempotencyKey) {
             $escrow = $this->getEscrow($escrowId);
 
+            // Authorization check: sender (buyer), recipient (seller), or admin
+            $this->verifyUserCanRelease($escrow, $userId);
+
             $currentStatus = EscrowStatus::from($escrow->status);
             if (!$currentStatus->canRelease()) {
                 throw new \Exception("Cannot release from status: {$escrow->status}");
-            }
-
-            // Only sender or admin can release
-            if ($escrow->sender_id !== $userId && !$this->isAdmin($userId)) {
-                throw new \Exception('Only sender or admin can release funds');
             }
 
             // Create financial message
@@ -257,6 +252,9 @@ class EscrowService
     {
         return DB::transaction(function () use ($escrowId, $userId, $reason, $idempotencyKey) {
             $escrow = $this->getEscrow($escrowId);
+
+            // Authorization check: sender, recipient, or admin
+            $this->verifyUserCanRefund($escrow, $userId);
 
             $currentStatus = EscrowStatus::from($escrow->status);
             if (!$currentStatus->canRefund()) {
@@ -312,14 +310,12 @@ class EscrowService
         return DB::transaction(function () use ($escrowId, $userId, $reason) {
             $escrow = $this->getEscrow($escrowId);
 
+            // Authorization check: sender or recipient can dispute
+            $this->verifyUserCanDispute($escrow, $userId);
+
             $currentStatus = EscrowStatus::from($escrow->status);
             if (!$currentStatus->canDispute()) {
                 throw new \Exception("Cannot dispute from status: {$escrow->status}");
-            }
-
-            // Only sender can dispute
-            if ($escrow->sender_id !== $userId) {
-                throw new \Exception('Only sender can create dispute');
             }
 
             $this->updateStatus($escrowId, EscrowStatus::DISPUTED, $reason, [
@@ -332,6 +328,35 @@ class EscrowService
                 'message' => 'Dispute created',
             ];
         });
+    }
+
+    // Authorization helper methods
+    private function verifyUserIsRecipient(object $escrow, string $userId): void
+    {
+        if ($escrow->recipient_id !== $userId) {
+            throw new \Exception('Only recipient can perform this action');
+        }
+    }
+
+    private function verifyUserCanRelease(object $escrow, string $userId): void
+    {
+        if ($escrow->sender_id !== $userId && $escrow->recipient_id !== $userId && !$this->isAdmin($userId)) {
+            throw new \Exception('Not authorized to release funds');
+        }
+    }
+
+    private function verifyUserCanRefund(object $escrow, string $userId): void
+    {
+        if ($escrow->sender_id !== $userId && $escrow->recipient_id !== $userId && !$this->isAdmin($userId)) {
+            throw new \Exception('Not authorized to refund');
+        }
+    }
+
+    private function verifyUserCanDispute(object $escrow, string $userId): void
+    {
+        if ($escrow->sender_id !== $userId && $escrow->recipient_id !== $userId) {
+            throw new \Exception('Only sender or recipient can create dispute');
+        }
     }
 
     // Helper methods
