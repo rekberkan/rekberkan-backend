@@ -96,4 +96,34 @@ class BehaviorLogger
             request: $request
         );
     }
+
+    public function logEscrowCancellation(
+        int $tenantId,
+        int $userId,
+        int $escrowId,
+        ?Request $request = null
+    ): void {
+        $this->log(
+            tenantId: $tenantId,
+            userId: $userId,
+            eventType: 'ESCROW_CANCELLATION',
+            metadata: ['escrow_id' => $escrowId],
+            request: $request
+        );
+    }
+
+    public function logAuthFailure(
+        int $tenantId,
+        ?int $userId,
+        string $reason,
+        ?Request $request = null
+    ): void {
+        $this->log(
+            tenantId: $tenantId,
+            userId: $userId,
+            eventType: 'AUTH_FAILURE',
+            metadata: ['reason' => $reason],
+            request: $request
+        );
+    }
 }

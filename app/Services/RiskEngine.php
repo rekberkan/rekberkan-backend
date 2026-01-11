@@ -7,7 +7,6 @@ use App\Models\User;
 use App\Models\Escrow;
 use App\Models\UserBehaviorLog;
 use Illuminate\Support\Facades\DB;
-use Carbon\Carbon;
 
 class RiskEngine
 {
@@ -18,13 +17,17 @@ class RiskEngine
     public const ACTION_HIGH = 'HIGH';
     public const ACTION_CRITICAL = 'CRITICAL';
 
+    public function __construct(
+        protected AuditService $auditService
+    ) {}
+
     public function evaluateUser(User $user): array
     {
         $signals = $this->collectUserSignals($user);
         $score = $this->calculateScore($signals);
         $action = $this->determineAction($score);
 
-        $snapshotHash = hash('sha256', json_encode($signals));
+        $snapshotHash = hash('sha256', json_encode($signals, JSON_THROW_ON_ERROR));
 
         $decision = RiskDecision::create([
             'tenant_id' => $user->tenant_id,
@@ -37,7 +40,7 @@ class RiskEngine
             'engine_version' => self::VERSION,
         ]);
 
-        app(AuditService::class)->log([
+        $this->auditService->log([
             'event_type' => 'RISK_EVALUATION',
             'subject_type' => User::class,
             'subject_id' => $user->id,
@@ -69,7 +72,7 @@ class RiskEngine
                 COUNT(*) as total_escrows,
                 SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as disputed_count,
                 SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as cancelled_count
-            ', [Escrow::STATUS_DISPUTED, Escrow::STATUS_CANCELLED])
+            ', ['DISPUTED', 'CANCELLED'])
             ->first();
 
         $voucherAbuseCount = UserBehaviorLog::where('tenant_id', $user->tenant_id)
