@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\User;
 use App\Models\Wallet;
 use App\Models\Tenant;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
@@ -151,7 +152,9 @@ class AuthService
     }
 
     /**
-     * Logout with proper guard handling
+     * Logout with token blacklisting
+     * 
+     * SECURITY FIX: Bug #6 - Add token to blacklist on logout
      */
     public function logout(): void
     {
@@ -160,6 +163,30 @@ class AuthService
             $token = JWTAuth::getToken();
             
             if ($token) {
+                $tokenString = $token->get();
+                
+                // SECURITY FIX: Add token to blacklist
+                // Calculate remaining TTL for the token
+                $payload = JWTAuth::getPayload($token);
+                $exp = $payload->get('exp');
+                $now = now()->timestamp;
+                $ttl = max(0, $exp - $now);
+                
+                // Store in Redis blacklist with TTL matching token expiration
+                if ($ttl > 0) {
+                    Cache::put(
+                        "jwt_blacklist:{$tokenString}",
+                        true,
+                        $ttl
+                    );
+                    
+                    Log::info('Token blacklisted on logout', [
+                        'user_id' => auth()->id(),
+                        'ttl' => $ttl,
+                    ]);
+                }
+                
+                // Also invalidate via JWT library
                 JWTAuth::invalidate($token);
                 
                 Log::info('User logged out', [
@@ -224,6 +251,19 @@ class AuthService
 
             // Generate new token with same claims
             $newToken = $this->generateTokenWithClaims($user, $currentFingerprint);
+
+            // SECURITY FIX: Blacklist old token when refreshing
+            $oldTokenString = $oldToken->get();
+            $exp = $payload->get('exp');
+            $ttl = max(0, $exp - now()->timestamp);
+            
+            if ($ttl > 0) {
+                Cache::put(
+                    "jwt_blacklist:{$oldTokenString}",
+                    true,
+                    $ttl
+                );
+            }
 
             // Invalidate old token
             JWTAuth::invalidate($oldToken);
