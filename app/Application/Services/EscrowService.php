@@ -107,7 +107,7 @@ final class EscrowService
             }
 
             // Check balance
-            $wallet = $escrow->buyerWallet()->lockForUpdate()->first();
+            $wallet = $escrow->buyerWallet()->lockForUpdate()->firstOrFail();
             if (!$wallet->hasAvailableBalance($escrow->getAmount())) {
                 throw new InsufficientBalanceException();
             }
