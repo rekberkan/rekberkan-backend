@@ -31,7 +31,7 @@ class ResolveTenant
             $request->attributes->set('tenant_id', $tenantId);
 
             // Set PostgreSQL session variable for RLS
-            DB::statement("SET app.tenant_id = ?", [$tenantId]);
+            DB::statement("SET app.tenant_id = ?::bigint", [$tenantId]);
 
             // Add to log context
             \Illuminate\Support\Facades\Log::shareContext([
@@ -61,7 +61,7 @@ class ResolveTenant
         // 3. Try JWT claim
         $user = $request->user();
         if ($user && method_exists($user, 'tenant_id')) {
-            return $user->tenant_id;
+            return (string) $user->tenant_id;
         }
 
         // 4. Try query parameter (for webhooks)
@@ -77,12 +77,16 @@ class ResolveTenant
      */
     private function validateAndReturnTenantId(mixed $tenantId): ?string
     {
+        if (is_int($tenantId)) {
+            return (string) $tenantId;
+        }
+
         if (!is_string($tenantId)) {
             return null;
         }
 
-        // Validate UUID format
-        if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $tenantId)) {
+        // Validate bigint format
+        if (!preg_match('/^\d+$/', $tenantId)) {
             return null;
         }
 
