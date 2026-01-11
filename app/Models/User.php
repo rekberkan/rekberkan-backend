@@ -106,7 +106,7 @@ final class User extends Authenticatable implements JWTSubject
 
     public function riskScores(): HasMany
     {
-        return $this->hasMany(RiskScore::class);
+        return $this->hasMany(RiskAssessment::class);
     }
 
     public function behaviorLogs(): HasMany
