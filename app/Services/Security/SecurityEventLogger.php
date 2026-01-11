@@ -6,6 +6,8 @@ namespace App\Services\Security;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 class SecurityEventLogger
@@ -52,12 +54,63 @@ class SecurityEventLogger
     }
 
     /**
-     * Resolve country code from IP (stub for GeoIP integration).
+     * Resolve country code from IP address using GeoIP service.
+     * 
+     * SECURITY FIX: Implemented GeoIP integration for location-based risk analysis.
+     * Uses free ipapi.co service with caching to reduce API calls.
+     * 
+     * Alternative: Use MaxMind GeoLite2 or IP2Location for production.
      */
     private function resolveCountryCode(Request $request): ?string
     {
-        // TODO: Integrate with GeoIP service (MaxMind, IP2Location, etc.)
-        return null;
+        $ipAddress = $request->ip();
+        
+        // Skip for local/private IPs
+        if ($this->isPrivateIP($ipAddress)) {
+            return null;
+        }
+
+        // Check cache first (cache for 24 hours)
+        $cacheKey = "geoip:" . $ipAddress;
+        
+        return Cache::remember($cacheKey, 86400, function () use ($ipAddress) {
+            try {
+                // Using free ipapi.co service (150 requests/min limit)
+                // For production, consider MaxMind GeoLite2 or IP2Location
+                $response = Http::timeout(2)
+                    ->retry(2, 100)
+                    ->get("https://ipapi.co/{$ipAddress}/country/");
+
+                if ($response->successful()) {
+                    $countryCode = trim($response->body());
+                    
+                    // Validate country code format (2-letter ISO code)
+                    if (preg_match('/^[A-Z]{2}$/', $countryCode)) {
+                        return $countryCode;
+                    }
+                }
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::warning(
+                    'GeoIP lookup failed',
+                    ['ip' => $ipAddress, 'error' => $e->getMessage()]
+                );
+            }
+
+            return null;
+        });
+    }
+
+    /**
+     * Check if IP is private/local.
+     */
+    private function isPrivateIP(string $ip): bool
+    {
+        // Local/private IP ranges
+        return filter_var(
+            $ip,
+            FILTER_VALIDATE_IP,
+            FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+        ) === false;
     }
 
     /**
