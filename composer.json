@@ -1,0 +1,91 @@
+{
+    "name": "rekberkan/backend",
+    "type": "project",
+    "description": "Rekberkan - Core Banking Grade Escrow Platform Backend",
+    "keywords": ["laravel", "escrow", "fintech", "core-banking", "iso8583"],
+    "license": "proprietary",
+    "require": {
+        "php": "^8.3",
+        "laravel/framework": "^11.0",
+        "laravel/octane": "^2.3",
+        "laravel/horizon": "^5.23",
+        "laravel/sanctum": "^4.0",
+        "laravel/tinker": "^2.9",
+        "beyondcode/laravel-websockets": "^1.14",
+        "pusher/pusher-php-server": "^7.2",
+        "predis/predis": "^2.2",
+        "tymon/jwt-auth": "^2.1",
+        "spatie/laravel-permission": "^6.3",
+        "spatie/laravel-activitylog": "^4.8",
+        "spatie/laravel-query-builder": "^5.8",
+        "brick/money": "^0.9",
+        "ramsey/uuid": "^4.7",
+        "guzzlehttp/guzzle": "^7.8",
+        "league/flysystem-aws-s3-v3": "^3.0",
+        "darkaonline/l5-swagger": "^8.6",
+        "laravel/telescope": "^5.0"
+    },
+    "require-dev": {
+        "fakerphp/faker": "^1.23",
+        "laravel/pint": "^1.13",
+        "laravel/sail": "^1.27",
+        "mockery/mockery": "^1.6",
+        "nunomaduro/collision": "^8.1",
+        "phpunit/phpunit": "^11.0",
+        "phpstan/phpstan": "^1.10",
+        "larastan/larastan": "^2.8",
+        "enlightn/security-checker": "^2.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "app/",
+            "Database\\Factories\\": "database/factories/",
+            "Database\\Seeders\\": "database/seeders/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "post-autoload-dump": [
+            "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
+            "@php artisan package:discover --ansi"
+        ],
+        "post-update-cmd": [
+            "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
+        ],
+        "post-root-package-install": [
+            "@php -r \"file_exists('.env') || copy('.env.example', '.env');\""
+        ],
+        "post-create-project-cmd": [
+            "@php artisan key:generate --ansi",
+            "@php -r \"file_exists('database/database.sqlite') || touch('database/database.sqlite');\"",
+            "@php artisan migrate --graceful --ansi"
+        ],
+        "lint": "./vendor/bin/pint",
+        "test": "./vendor/bin/phpunit",
+        "analyse": "./vendor/bin/phpstan analyse",
+        "security": "./vendor/bin/security-checker security:check"
+    },
+    "extra": {
+        "laravel": {
+            "dont-discover": []
+        }
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "preferred-install": "dist",
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true,
+            "php-http/discovery": true
+        },
+        "platform": {
+            "php": "8.3"
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
