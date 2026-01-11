@@ -26,17 +26,10 @@ return new class extends Migration
         DB::statement('ALTER TABLE wallets ADD CONSTRAINT chk_available_balance_positive CHECK (available_balance >= 0)');
         DB::statement('ALTER TABLE wallets ADD CONSTRAINT chk_locked_balance_positive CHECK (locked_balance >= 0)');
 
-        // Enable RLS
-        DB::statement('ALTER TABLE wallets ENABLE ROW LEVEL SECURITY');
-        DB::statement("
-            CREATE POLICY tenant_isolation_policy ON wallets
-            USING (tenant_id = current_setting('app.current_tenant_id')::bigint)
-        ");
     }
 
     public function down(): void
     {
-        DB::statement('DROP POLICY IF EXISTS tenant_isolation_policy ON wallets');
         Schema::dropIfExists('wallets');
     }
 };

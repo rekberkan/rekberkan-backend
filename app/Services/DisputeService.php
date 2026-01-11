@@ -49,7 +49,7 @@ class DisputeService
                 'subject_type' => DisputeAction::class,
                 'subject_id' => $action->id,
                 'actor_id' => $makerAdmin->id,
-                'actor_type' => 'Admin',
+                'actor_type' => Admin::class,
                 'metadata' => [
                     'dispute_id' => $dispute->id,
                     'action_type' => $actionType,
@@ -90,7 +90,7 @@ class DisputeService
                 'subject_type' => DisputeAction::class,
                 'subject_id' => $action->id,
                 'actor_id' => $checkerAdmin->id,
-                'actor_type' => 'Admin',
+                'actor_type' => Admin::class,
                 'metadata' => [
                     'dispute_id' => $action->dispute_id,
                     'action_type' => $action->action_type,

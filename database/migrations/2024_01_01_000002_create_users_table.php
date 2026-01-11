@@ -28,19 +28,10 @@ return new class extends Migration
             $table->index('frozen_at');
         });
 
-        // Enable Row-Level Security
-        DB::statement('ALTER TABLE users ENABLE ROW LEVEL SECURITY');
-
-        // Create RLS policy for tenant isolation
-        DB::statement("
-            CREATE POLICY tenant_isolation_policy ON users
-            USING (tenant_id = current_setting('app.current_tenant_id')::bigint)
-        ");
     }
 
     public function down(): void
     {
-        DB::statement('DROP POLICY IF EXISTS tenant_isolation_policy ON users');
         Schema::dropIfExists('users');
     }
 };
