@@ -104,9 +104,15 @@ final class Money
 
     public function format(): string
     {
-        // IDR does not have fractional units (minor unit = 1)
-        // No need to divide by 100
-        return 'Rp ' . number_format($this->getMinorAmount(), 0, ',', '.');
+        $scale = $this->getCurrency() === 'IDR'
+            ? 0
+            : $this->amount->getScale();
+
+        $amount = $scale === 0
+            ? $this->getMinorAmount()
+            : (float) $this->getAmount();
+
+        return 'Rp ' . number_format($amount, $scale, ',', '.');
     }
 
     private function ensureSameCurrency(self $other): void
