@@ -21,7 +21,7 @@ class VoucherController extends Controller
     public function index(Request $request)
     {
         try {
-            $tenantId = (int) ($request->attributes->get('tenant_id') ?? $request->header('X-Tenant-ID'));
+            $tenantId = $this->resolveTenantId($request);
             $vouchers = $this->voucherService->getAvailableVouchers($tenantId);
 
             return response()->json([
@@ -49,7 +49,7 @@ class VoucherController extends Controller
 
         try {
             $userId = $request->user()->id;
-            $tenantId = (int) ($request->attributes->get('tenant_id') ?? $request->header('X-Tenant-ID'));
+            $tenantId = $this->resolveTenantId($request);
 
             $result = $this->voucherService->applyVoucher(
                 $validated['code'],
@@ -116,8 +116,10 @@ class VoucherController extends Controller
 
         try {
             $userId = $request->user()->id;
+            $tenantId = $this->resolveTenantId($request);
             $result = $this->voucherService->validateVoucher(
                 $validated['code'],
+                $tenantId,
                 $userId,
                 $validated['amount']
             );
@@ -136,5 +138,22 @@ class VoucherController extends Controller
                 'message' => 'Validation failed',
             ], 400);
         }
+    }
+
+    private function resolveTenantId(Request $request): int
+    {
+        $tenantId = $request->attributes->get('tenant_id') ?? $request->user()?->tenant_id;
+
+        if (!$tenantId || !is_numeric($tenantId)) {
+            abort(400, 'Tenant context is required');
+        }
+
+        $tenantId = (int) $tenantId;
+
+        if ($request->user()?->tenant_id && (int) $request->user()->tenant_id !== $tenantId) {
+            abort(403, 'Access denied to this tenant');
+        }
+
+        return $tenantId;
     }
 }

@@ -9,6 +9,7 @@ use App\Models\Escrow;
 use App\Domain\Escrow\Enums\EscrowStatus;
 use App\Application\Services\EscrowService;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 final class ProcessAutoRefundEscrows extends Command
 {
@@ -25,8 +26,8 @@ final class ProcessAutoRefundEscrows extends Command
     {
         $this->info('Processing auto-refund escrows...');
 
-        // Refund expired CREATED escrows
-        $createdExpired = Escrow::where('status', EscrowStatus::CREATED)
+        // Refund expired pending-payment escrows
+        $createdExpired = Escrow::where('status', EscrowStatus::PENDING_PAYMENT)
             ->where('sla_auto_refund_at', '<=', now())
             ->get();
 
@@ -41,18 +42,18 @@ final class ProcessAutoRefundEscrows extends Command
 
         foreach ($escrows as $escrow) {
             try {
-                // Update to EXPIRED first if CREATED
-                if ($escrow->status === EscrowStatus::CREATED) {
+                // Cancel pending-payment escrows that expired
+                if ($escrow->status === EscrowStatus::PENDING_PAYMENT) {
                     $escrow->update([
-                        'status' => EscrowStatus::EXPIRED,
-                        'expired_at' => now(),
+                        'status' => EscrowStatus::CANCELLED,
+                        'cancelled_at' => now(),
                     ]);
                 } else {
                     // FUNDED → REFUNDED
                     $this->escrowService->refund(
                         escrowId: $escrow->id,
                         userId: 0, // System user
-                        idempotencyKey: "auto-refund-{$escrow->id}-" . now()->timestamp,
+                        idempotencyKey: "auto-refund-{$escrow->id}-" . Str::uuid(),
                         isAutoRefund: true
                     );
                     $count++;

@@ -14,6 +14,8 @@ use Illuminate\Support\Facades\DB;
 
 final class ChatService
 {
+    private const MAX_PER_PAGE = 100;
+    private const MAX_MESSAGE_LENGTH = 1000;
     /**
      * Get user chats
      */
@@ -33,6 +35,8 @@ final class ChatService
      */
     public function getChatMessages(string $chatId, int $perPage = 50): LengthAwarePaginator
     {
+        $perPage = $this->clampPerPage($perPage);
+
         return ChatMessage::where('chat_id', $chatId)
             ->with('sender')
             ->orderBy('created_at', 'desc')
@@ -44,6 +48,8 @@ final class ChatService
      */
     public function getMessages(string $chatId, int $limit = 50): Collection
     {
+        $limit = $this->clampPerPage($limit);
+
         return ChatMessage::where('chat_id', $chatId)
             ->with('sender')
             ->orderBy('created_at', 'desc')
@@ -63,12 +69,21 @@ final class ChatService
             if ($chat->user1_id !== $senderId && $chat->user2_id !== $senderId) {
                 throw new \Exception('User is not part of this chat');
             }
+
+            $sanitizedMessage = trim(strip_tags($message));
+            if ($sanitizedMessage === '') {
+                throw new \Exception('Message cannot be empty');
+            }
+
+            if (mb_strlen($sanitizedMessage) > self::MAX_MESSAGE_LENGTH) {
+                throw new \Exception('Message exceeds maximum length');
+            }
             
             // Create message
             $chatMessage = ChatMessage::create([
                 'chat_id' => $chatId,
                 'sender_id' => $senderId,
-                'message' => $message,
+                'message' => $sanitizedMessage,
                 'attachment_url' => $attachment,
                 'created_at' => now(),
             ]);
@@ -176,5 +191,14 @@ final class ChatService
         return DB::table('chat_participants')
             ->where('user_id', $userId)
             ->sum('unread_count');
+    }
+
+    private function clampPerPage(int $perPage): int
+    {
+        if ($perPage <= 0) {
+            return 50;
+        }
+
+        return min($perPage, self::MAX_PER_PAGE);
     }
 }

@@ -3,8 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Services\ChatService;
-use App\Models\Escrow;
+use App\Application\Services\ChatService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -44,13 +43,19 @@ class ChatController extends Controller
     {
         try {
             $userId = $request->user()->id;
-            $page = $request->input('page', 1);
-            $perPage = $request->input('per_page', 50);
+            $perPage = min((int) $request->input('per_page', 50), 100);
+
+            $chat = $this->chatService->getOrCreateChatForEscrow($chatId);
+
+            if (!$this->chatService->canAccessChat($chat->id, $userId)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized',
+                ], 403);
+            }
 
             $messages = $this->chatService->getChatMessages(
-                Escrow::findOrFail($chatId),
-                $request->user(),
-                $page,
+                $chat->id,
                 $perPage
             );
 
@@ -77,10 +82,21 @@ class ChatController extends Controller
         ]);
 
         try {
+            $userId = $request->user()->id;
+            $chat = $this->chatService->getOrCreateChatForEscrow($chatId);
+
+            if (!$this->chatService->canAccessChat($chat->id, $userId)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized',
+                ], 403);
+            }
+
             $message = $this->chatService->sendMessage(
-                Escrow::findOrFail($chatId),
-                $request->user(),
-                $validated['message']
+                $chat->id,
+                $userId,
+                $validated['message'],
+                $validated['attachment_url'] ?? null
             );
 
             return response()->json([
@@ -107,7 +123,17 @@ class ChatController extends Controller
     public function markAsRead(Request $request, string $chatId)
     {
         try {
-            $this->chatService->markAsRead(Escrow::findOrFail($chatId), $request->user());
+            $userId = $request->user()->id;
+            $chat = $this->chatService->getOrCreateChatForEscrow($chatId);
+
+            if (!$this->chatService->canAccessChat($chat->id, $userId)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized',
+                ], 403);
+            }
+
+            $this->chatService->markAsRead($chat->id, $userId);
 
             return response()->json([
                 'success' => true,

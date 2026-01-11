@@ -203,7 +203,7 @@ final class EscrowService
         return DB::transaction(function () use ($escrowId, $userId, $idempotencyKey, $isAutoRelease) {
             $escrow = Escrow::lockForUpdate()->findOrFail($escrowId);
 
-            if (!$escrow->canTransitionTo(EscrowStatus::RELEASED)) {
+            if (!$escrow->canTransitionTo(EscrowStatus::COMPLETED)) {
                 throw new InvalidStateTransitionException(
                     "Cannot release escrow in {$escrow->status->value} status"
                 );
@@ -226,7 +226,7 @@ final class EscrowService
             );
 
             $escrow->update([
-                'status' => EscrowStatus::RELEASED,
+                'status' => EscrowStatus::COMPLETED,
                 'released_at' => now(),
                 'settlement_posting_batch_id' => $settlementBatchId,
             ]);

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Domain\Escrow\Enums\EscrowStatus;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -21,7 +22,7 @@ class AdminController extends Controller
     public function users(Request $request)
     {
         try {
-            $perPage = $request->input('per_page', 20);
+            $perPage = min((int) $request->input('per_page', 20), 100);
             $search = $request->input('search');
             $status = $request->input('status'); // active, suspended, banned
 
@@ -134,7 +135,7 @@ class AdminController extends Controller
     public function kycPending(Request $request)
     {
         try {
-            $perPage = $request->input('per_page', 20);
+            $perPage = min((int) $request->input('per_page', 20), 100);
 
             $kyc = DB::table('kyc_verifications')
                 ->join('users', 'kyc_verifications.user_id', '=', 'users.id')
@@ -223,7 +224,7 @@ class AdminController extends Controller
     public function securityLogs(Request $request)
     {
         try {
-            $perPage = $request->input('per_page', 50);
+            $perPage = min((int) $request->input('per_page', 50), 100);
             $severity = $request->input('severity'); // low, medium, high, critical
             $eventType = $request->input('event_type');
             $suspicious = $request->input('suspicious'); // true/false
@@ -268,7 +269,12 @@ class AdminController extends Controller
                 'active_users' => DB::table('users')->where('status', 'active')->count(),
                 'pending_kyc' => DB::table('kyc_verifications')->where('status', 'pending')->count(),
                 'total_escrows' => DB::table('escrows')->count(),
-                'active_escrows' => DB::table('escrows')->where('status', 'active')->count(),
+                'active_escrows' => DB::table('escrows')->whereIn('status', [
+                    EscrowStatus::FUNDED->value,
+                    EscrowStatus::IN_PROGRESS->value,
+                    EscrowStatus::DELIVERED->value,
+                    EscrowStatus::DISPUTED->value,
+                ])->count(),
                 'total_volume' => DB::table('escrows')->sum('amount'),
                 'suspicious_events_24h' => DB::table('security_events')
                     ->where('is_suspicious', true)

@@ -255,20 +255,22 @@ class MembershipService
         return $result;
     }
 
-    public function getUsageStats(int $userId, string $tier, ?Membership $membership = null): array
+    public function getUsageStats(int $userId, int $tenantId, string $tier, ?Membership $membership = null): array
     {
         $benefits = Membership::getTierConfig($tier)['benefits'];
         $discountRate = $benefits['escrow_fee_discount'] ?? 0;
 
         $startOfDay = now()->startOfDay();
-        $dailyTransactionsUsed = Escrow::where(function ($query) use ($userId) {
-            $query->where('buyer_id', $userId)
-                ->orWhere('seller_id', $userId);
-        })
+        $dailyTransactionsUsed = Escrow::where('tenant_id', $tenantId)
+            ->where(function ($query) use ($userId) {
+                $query->where('buyer_id', $userId)
+                    ->orWhere('seller_id', $userId);
+            })
             ->where('created_at', '>=', $startOfDay)
             ->count();
 
-        $feeQuery = Escrow::where('buyer_id', $userId);
+        $feeQuery = Escrow::where('tenant_id', $tenantId)
+            ->where('buyer_id', $userId);
         if ($membership?->started_at) {
             $feeQuery->where('created_at', '>=', $membership->started_at);
         }

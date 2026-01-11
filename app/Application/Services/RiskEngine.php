@@ -9,6 +9,7 @@ use App\Models\RiskAssessment;
 use App\Models\UserBehaviorLog;
 use App\Models\Escrow;
 use App\Models\Withdrawal;
+use App\Domain\Escrow\Enums\EscrowStatus;
 use App\Domain\Risk\Enums\RiskTier;
 use App\Domain\Risk\Enums\RiskSignal;
 use Illuminate\Support\Facades\DB;
@@ -221,23 +222,26 @@ final class RiskEngine
     // Helper methods for signal collection
     private function getTotalEscrows(User $user): int
     {
-        return Escrow::where(function ($q) use ($user) {
+        return Escrow::where('tenant_id', $user->tenant_id)
+            ->where(function ($q) use ($user) {
             $q->where('buyer_id', $user->id)->orWhere('seller_id', $user->id);
         })->count();
     }
 
     private function getTotalDisputes(User $user): int
     {
-        return Escrow::where(function ($q) use ($user) {
+        return Escrow::where('tenant_id', $user->tenant_id)
+            ->where(function ($q) use ($user) {
             $q->where('buyer_id', $user->id)->orWhere('seller_id', $user->id);
-        })->where('status', 'DISPUTED')->count();
+        })->where('status', EscrowStatus::DISPUTED->value)->count();
     }
 
     private function getTotalCancelled(User $user): int
     {
-        return Escrow::where(function ($q) use ($user) {
+        return Escrow::where('tenant_id', $user->tenant_id)
+            ->where(function ($q) use ($user) {
             $q->where('buyer_id', $user->id)->orWhere('seller_id', $user->id);
-        })->where('status', 'CANCELLED')->count();
+        })->where('status', EscrowStatus::CANCELLED->value)->count();
     }
 
     private function getVoucherAbuseCount(User $user): int

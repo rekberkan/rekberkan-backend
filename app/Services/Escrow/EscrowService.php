@@ -2,6 +2,7 @@
 
 namespace App\Services\Escrow;
 
+use App\Domain\Escrow\Enums\EscrowStatus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -35,7 +36,7 @@ class EscrowService
                 'recipient_id' => $recipientId,
                 'amount' => $amount,
                 'description' => $description,
-                'status' => 'pending',
+                'status' => EscrowStatus::PENDING_PAYMENT->value,
                 'metadata' => $metadata ? json_encode($metadata) : null,
                 'created_at' => now(),
                 'updated_at' => now(),
@@ -92,14 +93,17 @@ class EscrowService
                 throw new \Exception('Unauthorized or escrow not found');
             }
 
-            if ($escrow['status'] !== 'active') {
+            if (!in_array($escrow['status'], [
+                EscrowStatus::DELIVERED->value,
+                EscrowStatus::DISPUTED->value,
+            ], true)) {
                 throw new \Exception('Escrow is not active');
             }
 
             DB::table('escrows')
                 ->where('id', $escrowId)
                 ->update([
-                    'status' => 'released',
+                    'status' => EscrowStatus::COMPLETED->value,
                     'released_at' => now(),
                     'updated_at' => now(),
                 ]);
@@ -128,19 +132,23 @@ class EscrowService
             }
 
             // Only sender or admin can refund
-            if ($escrow['sender_id'] !== $userId) {
-                // TODO: Check if user is admin
+            if ($escrow['sender_id'] !== $userId && !$this->isAdmin($userId)) {
                 throw new \Exception('Unauthorized');
             }
 
-            if (!in_array($escrow['status'], ['pending', 'active'])) {
+            if (!in_array($escrow['status'], [
+                EscrowStatus::PENDING_PAYMENT->value,
+                EscrowStatus::FUNDED->value,
+                EscrowStatus::IN_PROGRESS->value,
+                EscrowStatus::DISPUTED->value,
+            ], true)) {
                 throw new \Exception('Escrow cannot be refunded');
             }
 
             DB::table('escrows')
                 ->where('id', $escrowId)
                 ->update([
-                    'status' => 'refunded',
+                    'status' => EscrowStatus::REFUNDED->value,
                     'refunded_at' => now(),
                     'updated_at' => now(),
                 ]);
@@ -152,5 +160,13 @@ class EscrowService
             DB::rollBack();
             throw $e;
         }
+    }
+
+    private function isAdmin(int $userId): bool
+    {
+        return DB::table('admins')
+            ->where('id', $userId)
+            ->where('is_active', true)
+            ->exists();
     }
 }

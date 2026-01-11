@@ -7,8 +7,11 @@ namespace App\Domain\Escrow\Services;
 use App\Domain\Escrow\Enums\EscrowStatus;
 use App\Domain\Financial\Enums\ProcessingCode;
 use App\Domain\Financial\Enums\ReasonCode;
+use App\Domain\Financial\Enums\MessagePhase;
 use App\Domain\Financial\Services\PostingService;
 use App\Domain\Financial\ValueObjects\Money;
+use App\Domain\Ledger\ValueObjects\RRN;
+use App\Domain\Ledger\ValueObjects\STAN;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -248,13 +251,21 @@ class EscrowService
     /**
      * Refund to sender.
      */
-    public function refund(string $escrowId, string $userId, string $reason, string $idempotencyKey): array
+    public function refund(
+        string $escrowId,
+        string $userId,
+        string $reason,
+        string $idempotencyKey,
+        bool $isAutoRefund = false
+    ): array
     {
-        return DB::transaction(function () use ($escrowId, $userId, $reason, $idempotencyKey) {
+        return DB::transaction(function () use ($escrowId, $userId, $reason, $idempotencyKey, $isAutoRefund) {
             $escrow = $this->getEscrow($escrowId);
 
             // Authorization check: sender, recipient, or admin
-            $this->verifyUserCanRefund($escrow, $userId);
+            if (!$isAutoRefund) {
+                $this->verifyUserCanRefund($escrow, $userId);
+            }
 
             $currentStatus = EscrowStatus::from($escrow->status);
             if (!$currentStatus->canRefund()) {
@@ -397,11 +408,11 @@ class EscrowService
         DB::table('financial_messages')->insert([
             'id' => $messageId,
             'tenant_id' => $tenantId,
-            'stan' => $this->generateStan(),
+            'stan' => $this->generateStan((int) $tenantId),
             'rrn' => $this->generateRrn(),
             'processing_code' => $code->value,
             'amount' => $amount,
-            'phase' => 'INITIATED',
+            'phase' => MessagePhase::INITIATED->value,
             'created_at' => now(),
         ]);
         return $messageId;
@@ -427,16 +438,19 @@ class EscrowService
 
     private function isAdmin(string $userId): bool
     {
-        return DB::table('admins')->where('id', $userId)->exists();
+        return DB::table('admins')
+            ->where('id', $userId)
+            ->where('is_active', true)
+            ->exists();
     }
 
-    private function generateStan(): string
+    private function generateStan(int $tenantId): string
     {
-        return str_pad((string) rand(1, 999999), 6, '0', STR_PAD_LEFT);
+        return STAN::generate($tenantId)->value();
     }
 
     private function generateRrn(): string
     {
-        return date('ymdHis') . str_pad((string) rand(1, 999), 3, '0', STR_PAD_LEFT);
+        return RRN::generate()->value();
     }
 }
