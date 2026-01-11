@@ -34,6 +34,12 @@ class AuditService
         return AuditLog::create($recordData);
     }
 
+    /**
+     * Calculate hash for audit record.
+     * 
+     * SECURITY FIX: Now includes ALL critical fields to prevent tampering.
+     * Previously missing: actor_id, actor_type, ip_address, user_agent
+     */
     protected function calculateRecordHash(array $data): string
     {
         $hashInput = json_encode([
@@ -41,6 +47,10 @@ class AuditService
             'event_type' => $data['event_type'],
             'subject_type' => $data['subject_type'],
             'subject_id' => $data['subject_id'],
+            'actor_id' => $data['actor_id'],
+            'actor_type' => $data['actor_type'],
+            'ip_address' => $data['ip_address'],
+            'user_agent' => $data['user_agent'],
             'metadata' => $data['metadata'],
             'prev_hash' => $data['prev_hash'],
             'created_at' => $data['created_at']->toIso8601String(),
