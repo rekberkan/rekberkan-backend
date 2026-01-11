@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
- * NEW SERVICE: Membership management service.
+ * Membership management service.
  */
 class MembershipService
 {
@@ -92,8 +92,10 @@ class MembershipService
      */
     private function changeTier(Membership $membership, string $newTier): void
     {
+        // Save old tier BEFORE updating
         $oldTier = $membership->tier;
-        $oldConfig = Membership::getTierConfig($membership->tier);
+        
+        $oldConfig = Membership::getTierConfig($oldTier);
         $newConfig = Membership::getTierConfig($newTier);
 
         $priceDiff = $newConfig['price'] - $oldConfig['price'];
@@ -103,22 +105,26 @@ class MembershipService
             $daysRemaining = now()->diffInDays($membership->expires_at);
             $proratedAmount = ($priceDiff / 30) * $daysRemaining;
             
+            // Round up to avoid undercharging
             $this->processPayment(
                 $membership->user_id,
-                (int) round($proratedAmount),
+                (int) ceil($proratedAmount),
                 $membership->payment_method
             );
         }
 
+        // Update tier
         $membership->update([
             'tier' => $newTier,
             'updated_at' => now(),
         ]);
 
+        // Log with correct old_tier value
         Log::info('Membership tier changed', [
             'user_id' => $membership->user_id,
             'old_tier' => $oldTier,
             'new_tier' => $newTier,
+            'prorated_charge' => $priceDiff > 0 ? (int) ceil(($priceDiff / 30) * now()->diffInDays($membership->expires_at)) : 0,
         ]);
     }
 

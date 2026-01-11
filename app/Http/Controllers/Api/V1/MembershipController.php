@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Log;
 class MembershipController extends Controller
 {
     /**
-     * NEW CONTROLLER: Membership management.
+     * Membership management controller.
      */
     public function __construct(
         private MembershipService $membershipService
@@ -84,11 +84,14 @@ class MembershipController extends Controller
 
         try {
             $userId = $request->user()->id;
-            $tenantId = (int) ($request->attributes->get('tenant_id') ?? $request->header('X-Tenant-ID'));
-
-            if (!$tenantId) {
-                throw new \Exception('Tenant ID is required');
-            }
+            
+            // Get tenantId with fallback to default
+            $tenantId = (int) (
+                $request->attributes->get('tenant_id') 
+                ?? $request->header('X-Tenant-ID') 
+                ?? $request->user()->tenant_id 
+                ?? 1
+            );
 
             $membership = $this->membershipService->subscribe(
                 $userId,
@@ -105,7 +108,7 @@ class MembershipController extends Controller
         } catch (\Exception $e) {
             Log::error('Membership subscription failed', [
                 'user_id' => $request->user()->id,
-                'tier' => $validated['tier'],
+                'tier' => $validated['tier'] ?? null,
                 'error' => $e->getMessage(),
             ]);
 

@@ -26,26 +26,26 @@ class WebhookController extends Controller
             $payload = $request->all();
             $signature = $payload['signature_key'] ?? '';
 
+            // Guard: Check required fields first
+            $orderId = $payload['order_id'] ?? null;
+            $transactionStatus = $payload['transaction_status'] ?? null;
+
+            if (!$orderId || !$transactionStatus) {
+                Log::warning('Midtrans webhook missing required fields', [
+                    'payload' => $payload,
+                ]);
+                return response()->json(['message' => 'Missing required fields'], 422);
+            }
+
             // Verify signature
             if (!$this->midtrans->verifyWebhookSignature($payload, $signature)) {
-                Log::warning('Invalid Midtrans webhook signature', ['payload' => $payload]);
+                Log::warning('Invalid Midtrans webhook signature', ['order_id' => $orderId]);
                 return response()->json(['message' => 'Invalid signature'], 401);
             }
 
             // Log webhook
             $this->logWebhook('midtrans', $payload);
 
-            $orderId = $payload['order_id'] ?? null;
-            $transactionStatus = $payload['transaction_status'] ?? null;
-
-            if (!$orderId || !$transactionStatus) {
-                Log::warning('Midtrans webhook missing required fields', [
-                    'order_id' => $orderId,
-                    'transaction_status' => $transactionStatus,
-                ]);
-
-                return response()->json(['message' => 'Missing required fields'], 422);
-            }
             $fraudStatus = $payload['fraud_status'] ?? 'accept';
 
             // Get deposit record
@@ -54,6 +54,15 @@ class WebhookController extends Controller
             if (!$deposit) {
                 Log::error('Deposit not found for order', ['order_id' => $orderId]);
                 return response()->json(['message' => 'Order not found'], 404);
+            }
+
+            // Idempotency check - if already completed, return OK
+            if ($deposit->status === 'completed') {
+                Log::info('Deposit already completed (idempotent)', [
+                    'deposit_id' => $deposit->id,
+                    'order_id' => $orderId,
+                ]);
+                return response()->json(['message' => 'OK']);
             }
 
             // Process based on status
@@ -71,10 +80,10 @@ class WebhookController extends Controller
         } catch (\Exception $e) {
             Log::error('Midtrans webhook processing failed', [
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
             ]);
 
-            return response()->json(['message' => 'Internal error'], 500);
+            // Don't expose internal error details
+            return response()->json(['message' => 'Processing error'], 500);
         }
     }
 
@@ -84,8 +93,11 @@ class WebhookController extends Controller
     private function processSuccessfulDeposit(object $deposit): void
     {
         DB::transaction(function () use ($deposit) {
-            if (($deposit->status ?? null) === 'completed') {
-                Log::info('Deposit already completed, skipping credit', [
+            // Double-check idempotency inside transaction
+            $currentDeposit = DB::table('deposits')->where('id', $deposit->id)->lockForUpdate()->first();
+            
+            if ($currentDeposit->status === 'completed') {
+                Log::info('Deposit already completed in race condition check', [
                     'deposit_id' => $deposit->id,
                 ]);
                 return;
@@ -98,13 +110,13 @@ class WebhookController extends Controller
                 'updated_at' => now(),
             ]);
 
-            // Credit user wallet
+            // Credit user wallet using correct field (wallet_id not wallet_account_id)
             DB::table('account_balances')
                 ->where('account_id', $deposit->wallet_id)
                 ->increment('balance', $deposit->amount);
 
             // If this is for escrow funding, trigger escrow fund
-            if ($deposit->escrow_id) {
+            if ($deposit->escrow_id ?? null) {
                 $this->escrowService->fund(
                     escrowId: $deposit->escrow_id,
                     userId: $deposit->user_id,
@@ -135,10 +147,14 @@ class WebhookController extends Controller
      */
     private function processPendingDeposit(object $deposit): void
     {
-        DB::table('deposits')->where('id', $deposit->id)->update([
-            'status' => 'pending',
-            'updated_at' => now(),
-        ]);
+        // Only update if not already completed
+        DB::table('deposits')
+            ->where('id', $deposit->id)
+            ->where('status', '!=', 'completed')
+            ->update([
+                'status' => 'pending',
+                'updated_at' => now(),
+            ]);
     }
 
     /**

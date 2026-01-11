@@ -1,128 +1,103 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Services\NotificationService;
+use App\Application\Services\NotificationService;
+use App\Http\Resources\NotificationResource;
+use App\Models\Notification;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
-class NotificationController extends Controller
+final class NotificationController extends Controller
 {
     public function __construct(
         private NotificationService $notificationService
     ) {}
 
     /**
-     * List user's notifications.
-     * 
-     * NEW CONTROLLER: Expose NotificationService.
+     * Get user notifications
      */
-    public function index(Request $request)
+    public function index(Request $request): JsonResponse
     {
-        try {
-            $userId = $request->user()->id;
-            $page = $request->input('page', 1);
-            $perPage = $request->input('per_page', 20);
+        $userId = $request->user()->id;
+        $notifications = $this->notificationService->getUserNotifications($userId, 20);
 
-            $notifications = $this->notificationService->getUserNotifications(
-                $userId,
-                $page,
-                $perPage
-            );
-
-            return response()->json([
-                'success' => true,
-                'data' => $notifications,
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to fetch notifications',
-            ], 500);
-        }
+        return response()->json([
+            'data' => NotificationResource::collection($notifications),
+            'meta' => [
+                'current_page' => $notifications->currentPage(),
+                'last_page' => $notifications->lastPage(),
+                'per_page' => $notifications->perPage(),
+                'total' => $notifications->total(),
+            ],
+        ]);
     }
 
     /**
-     * Get unread notification count.
+     * Get unread notifications count
      */
-    public function unreadCount(Request $request)
+    public function unreadCount(Request $request): JsonResponse
     {
-        try {
-            $userId = $request->user()->id;
-            $count = $this->notificationService->getUnreadCount($userId);
+        $userId = $request->user()->id;
+        $count = $this->notificationService->getUnreadCount($userId);
 
-            return response()->json([
-                'success' => true,
-                'data' => ['count' => $count],
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to fetch count',
-            ], 500);
-        }
+        return response()->json([
+            'data' => [
+                'unread_count' => $count,
+            ],
+        ]);
     }
 
     /**
-     * Mark notification as read.
+     * Mark notification as read
      */
-    public function markAsRead(Request $request, string $id)
+    public function markAsRead(string $id, Request $request): JsonResponse
     {
-        try {
-            $userId = $request->user()->id;
-            $this->notificationService->markAsRead($id, $userId);
+        $userId = $request->user()->id;
+        $notification = Notification::where('id', $id)
+            ->where('user_id', $userId)
+            ->firstOrFail();
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Notification marked as read',
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to mark as read',
-            ], 500);
-        }
+        $this->notificationService->markAsRead($notification);
+
+        return response()->json([
+            'data' => new NotificationResource($notification->fresh()),
+        ]);
     }
 
     /**
-     * Mark all notifications as read.
+     * Mark all notifications as read
      */
-    public function markAllAsRead(Request $request)
+    public function markAllAsRead(Request $request): JsonResponse
     {
-        try {
-            $userId = $request->user()->id;
-            $this->notificationService->markAllAsRead($userId);
+        $userId = $request->user()->id;
+        $updated = $this->notificationService->markAllAsRead($userId);
 
-            return response()->json([
-                'success' => true,
-                'message' => 'All notifications marked as read',
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to mark all as read',
-            ], 500);
-        }
+        return response()->json([
+            'message' => 'All notifications marked as read',
+            'data' => [
+                'updated_count' => $updated,
+            ],
+        ]);
     }
 
     /**
-     * Delete notification.
+     * Delete notification
      */
-    public function destroy(Request $request, string $id)
+    public function destroy(string $id, Request $request): JsonResponse
     {
-        try {
-            $userId = $request->user()->id;
-            $this->notificationService->delete($id, $userId);
+        $userId = $request->user()->id;
+        $notification = Notification::where('id', $id)
+            ->where('user_id', $userId)
+            ->firstOrFail();
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Notification deleted',
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to delete notification',
-            ], 500);
-        }
+        $this->notificationService->delete($notification);
+
+        return response()->json([
+            'message' => 'Notification deleted successfully',
+        ]);
     }
 }

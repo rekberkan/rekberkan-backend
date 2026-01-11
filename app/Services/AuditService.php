@@ -37,29 +37,47 @@ class AuditService
     /**
      * Calculate hash for audit record.
      * 
-     * SECURITY FIX: Now includes ALL critical fields to prevent tampering.
-     * Previously missing: actor_id, actor_type, ip_address, user_agent
+     * SECURITY: Includes ALL critical fields to prevent tampering.
+     * Ensures created_at is consistently formatted as ISO8601 string.
      */
     protected function calculateRecordHash(array $data): string
     {
-        $createdAt = $data['created_at'];
-        if (is_string($createdAt)) {
-            $createdAt = \Carbon\Carbon::parse($createdAt);
+        // Normalize created_at to consistent string format
+        $createdAt = $data['created_at'] ?? null;
+        
+        if ($createdAt instanceof \DateTimeInterface) {
+            // Carbon or DateTime object
+            $createdAtString = $createdAt->format('c'); // ISO8601 format
+        } elseif (is_string($createdAt)) {
+            // String date, parse and reformat for consistency
+            try {
+                $createdAtString = \Carbon\Carbon::parse($createdAt)->format('c');
+            } catch (\Exception $e) {
+                $createdAtString = null;
+            }
+        } else {
+            $createdAtString = null;
         }
 
-        $hashInput = json_encode([
+        // Build hash input with sorted keys for consistency
+        $hashData = [
             'tenant_id' => $data['tenant_id'],
             'event_type' => $data['event_type'],
-            'subject_type' => $data['subject_type'],
-            'subject_id' => $data['subject_id'],
-            'actor_id' => $data['actor_id'],
-            'actor_type' => $data['actor_type'],
-            'ip_address' => $data['ip_address'],
-            'user_agent' => $data['user_agent'],
-            'metadata' => $data['metadata'],
-            'prev_hash' => $data['prev_hash'],
-            'created_at' => $createdAt?->toIso8601String(),
-        ], JSON_THROW_ON_ERROR);
+            'subject_type' => $data['subject_type'] ?? null,
+            'subject_id' => $data['subject_id'] ?? null,
+            'actor_id' => $data['actor_id'] ?? null,
+            'actor_type' => $data['actor_type'] ?? null,
+            'ip_address' => $data['ip_address'] ?? null,
+            'user_agent' => $data['user_agent'] ?? null,
+            'metadata' => $data['metadata'] ?? null,
+            'prev_hash' => $data['prev_hash'] ?? null,
+            'created_at' => $createdAtString,
+        ];
+
+        // Sort keys to ensure consistent ordering
+        ksort($hashData);
+
+        $hashInput = json_encode($hashData, JSON_THROW_ON_ERROR);
 
         return hash('sha256', $hashInput);
     }
@@ -78,6 +96,9 @@ class AuditService
         return $result && $result->tenant_id ? (int) $result->tenant_id : 0;
     }
 
+    /**
+     * Verify audit trail chain integrity.
+     */
     public function verifyChainIntegrity(int $tenantId): array
     {
         $records = AuditLog::where('tenant_id', $tenantId)
@@ -88,6 +109,7 @@ class AuditService
         $prevHash = null;
 
         foreach ($records as $record) {
+            // Check prev_hash chain
             if ($record->prev_hash !== $prevHash) {
                 $issues[] = [
                     'record_id' => $record->id,
@@ -97,7 +119,23 @@ class AuditService
                 ];
             }
 
-            $expectedHash = $this->calculateRecordHash($record->toArray());
+            // Verify record hash hasn't been tampered with
+            $recordArray = [
+                'tenant_id' => $record->tenant_id,
+                'event_type' => $record->event_type,
+                'subject_type' => $record->subject_type,
+                'subject_id' => $record->subject_id,
+                'actor_id' => $record->actor_id,
+                'actor_type' => $record->actor_type,
+                'ip_address' => $record->ip_address,
+                'user_agent' => $record->user_agent,
+                'metadata' => $record->metadata,
+                'prev_hash' => $record->prev_hash,
+                'created_at' => $record->created_at, // Carbon instance
+            ];
+
+            $expectedHash = $this->calculateRecordHash($recordArray);
+            
             if ($record->record_hash !== $expectedHash) {
                 $issues[] = [
                     'record_id' => $record->id,
