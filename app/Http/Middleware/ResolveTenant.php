@@ -31,7 +31,7 @@ class ResolveTenant
             $request->attributes->set('tenant_id', $tenantId);
 
             // Set PostgreSQL session variable for RLS
-            DB::statement("SET app.tenant_id = ?", [$tenantId]);
+            DB::statement("SET app.tenant_id = ?::bigint", [$tenantId]);
 
             // Add to log context
             \Illuminate\Support\Facades\Log::shareContext([
