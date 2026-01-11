@@ -15,6 +15,9 @@ class CampaignService
         protected AuditService $auditService
     ) {}
 
+    /**
+     * Get active campaigns with optional tenant filter
+     */
     public function getActiveCampaigns(?int $tenantId = null)
     {
         $now = now();
@@ -45,11 +48,29 @@ class CampaignService
         return $query->orderByDesc('starts_at')->get();
     }
 
+    /**
+     * Get campaign by ID (without tenant filter - use with caution)
+     * @deprecated Use getCampaignByIdWithTenant() instead
+     */
     public function getCampaignById(string $campaignId): ?Campaign
     {
         return Campaign::find($campaignId);
     }
 
+    /**
+     * Get campaign by ID with tenant filter (safe)
+     */
+    public function getCampaignByIdWithTenant(string $campaignId, int $tenantId): ?Campaign
+    {
+        return Campaign::where('id', $campaignId)
+            ->where('tenant_id', $tenantId)
+            ->first();
+    }
+
+    /**
+     * Participate in campaign (without tenant validation)
+     * @deprecated Use participateWithTenant() instead
+     */
     public function participate(string $campaignId, int $userId, ?string $walletAddress = null): CampaignParticipation
     {
         $campaign = Campaign::findOrFail($campaignId);
@@ -72,13 +93,62 @@ class CampaignService
         return $participation;
     }
 
-    public function getUserParticipations(int $userId)
+    /**
+     * Participate in campaign with tenant enforcement (safe)
+     */
+    public function participateWithTenant(
+        string $campaignId,
+        int $userId,
+        int $tenantId,
+        ?string $walletAddress = null
+    ): CampaignParticipation {
+        // Validate campaign belongs to tenant
+        $campaign = Campaign::where('id', $campaignId)
+            ->where('tenant_id', $tenantId)
+            ->firstOrFail();
+
+        // Validate user belongs to tenant
+        $user = User::where('id', $userId)
+            ->where('tenant_id', $tenantId)
+            ->firstOrFail();
+
+        $participation = $this->enrollUser($campaign, $user);
+
+        if ($walletAddress) {
+            $this->auditService->log([
+                'event_type' => 'CAMPAIGN_WALLET_ADDRESS',
+                'subject_type' => CampaignParticipation::class,
+                'subject_id' => $participation->id,
+                'metadata' => [
+                    'wallet_address' => $walletAddress,
+                    'user_id' => $userId,
+                    'tenant_id' => $tenantId,
+                ],
+            ]);
+        }
+
+        return $participation;
+    }
+
+    /**
+     * Get user participations with optional tenant filter
+     */
+    public function getUserParticipations(int $userId, ?int $tenantId = null)
     {
-        return CampaignParticipation::where('user_id', $userId)
+        $query = CampaignParticipation::where('user_id', $userId);
+
+        if ($tenantId) {
+            $query->where('tenant_id', $tenantId);
+        }
+
+        return $query->with(['campaign'])
             ->orderByDesc('created_at')
             ->get();
     }
 
+    /**
+     * Enroll user in campaign (internal method)
+     */
     public function enrollUser(
         Campaign $campaign,
         User $user,
@@ -94,12 +164,18 @@ class CampaignService
                 throw new \Exception('Campaign is not active');
             }
 
+            // Check existing participation
             $existingParticipation = CampaignParticipation::where('campaign_id', $campaign->id)
                 ->where('user_id', $user->id)
                 ->first();
 
             if ($existingParticipation) {
                 throw new \Exception('User already enrolled in campaign');
+            }
+
+            // Validate tenant match
+            if ($campaign->tenant_id !== $user->tenant_id) {
+                throw new \Exception('Campaign and user tenant mismatch');
             }
 
             if ($this->checkEligibility($campaign, $user) === false) {
@@ -129,6 +205,7 @@ class CampaignService
                 'metadata' => [
                     'campaign_id' => $campaign->id,
                     'user_id' => $user->id,
+                    'tenant_id' => $user->tenant_id,
                     'benefit_amount' => $benefitAmount,
                 ],
             ]);
@@ -137,6 +214,9 @@ class CampaignService
         });
     }
 
+    /**
+     * Check user eligibility for campaign
+     */
     protected function checkEligibility(Campaign $campaign, User $user): bool
     {
         if ($campaign->type === 'FIRST_ESCROW_FREE') {
