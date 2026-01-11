@@ -11,14 +11,13 @@ return new class extends Migration
         Schema::create('chat_messages', function (Blueprint $table) {
             $table->id();
             $table->foreignUuid('escrow_id')->constrained()->onDelete('cascade');
-            $table->foreignId('sender_id')->constrained('users')->onDelete('cascade');
-            $table->text('message');
+            $table->morphs('sender');
+            $table->text('body');
             $table->json('attachments')->nullable();
             $table->timestamp('read_at')->nullable();
             $table->timestamps();
 
             $table->index(['escrow_id', 'created_at']);
-            $table->index('sender_id');
         });
     }
 
