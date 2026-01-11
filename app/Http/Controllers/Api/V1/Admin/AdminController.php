@@ -18,10 +18,54 @@ class AdminController extends Controller
      * 
      * SECURITY: Requires admin role check (implement in middleware).
      * All queries are tenant-scoped.
+     * 
+     * SECURITY FIX: Bug #4 - SQL injection prevention via whitelist
      */
 
     /**
+     * Whitelist untuk ORDER BY columns
+     */
+    private const ALLOWED_ORDER_COLUMNS = [
+        'users' => ['id', 'name', 'email', 'status', 'created_at', 'last_login_at'],
+        'security_events' => ['id', 'severity', 'event_type', 'created_at'],
+        'kyc_verifications' => ['id', 'status', 'created_at', 'reviewed_at'],
+    ];
+
+    /**
+     * Validate and sanitize ORDER BY parameter
+     */
+    private function validateOrderBy(string $table, ?string $orderBy, string $default = 'created_at'): string
+    {
+        if (!$orderBy) {
+            return $default;
+        }
+
+        $allowedColumns = self::ALLOWED_ORDER_COLUMNS[$table] ?? [];
+        
+        if (!in_array($orderBy, $allowedColumns, true)) {
+            Log::warning('Invalid ORDER BY attempt blocked', [
+                'table' => $table,
+                'attempted_column' => $orderBy,
+                'ip' => request()->ip(),
+            ]);
+            return $default;
+        }
+
+        return $orderBy;
+    }
+
+    /**
+     * Validate sort direction
+     */
+    private function validateSortDirection(?string $direction): string
+    {
+        return strtolower($direction ?? 'desc') === 'asc' ? 'asc' : 'desc';
+    }
+
+    /**
      * List all users with filters (tenant-scoped).
+     * 
+     * SECURITY FIX: Bug #4 - Added ORDER BY validation
      */
     public function users(Request $request)
     {
@@ -30,6 +74,10 @@ class AdminController extends Controller
             $perPage = min((int) $request->input('per_page', 20), 100);
             $search = $request->input('search');
             $status = $request->input('status'); // active, suspended, banned
+            
+            // SECURITY FIX: Validate ORDER BY
+            $orderBy = $this->validateOrderBy('users', $request->input('order_by'), 'created_at');
+            $direction = $this->validateSortDirection($request->input('direction'));
 
             $query = DB::table('users')
                 ->where('tenant_id', $tenantId) // Tenant scoped
@@ -46,7 +94,8 @@ class AdminController extends Controller
                 $query->where('status', $status);
             }
 
-            $users = $query->orderByDesc('created_at')->paginate($perPage);
+            // SECURITY FIX: Use validated ORDER BY
+            $users = $query->orderBy($orderBy, $direction)->paginate($perPage);
 
             return response()->json([
                 'success' => true,
@@ -180,19 +229,25 @@ class AdminController extends Controller
 
     /**
      * List pending KYC verifications (tenant-scoped).
+     * 
+     * SECURITY FIX: Bug #4 - Added ORDER BY validation
      */
     public function kycPending(Request $request)
     {
         try {
             $tenantId = $this->getCurrentTenantId();
             $perPage = min((int) $request->input('per_page', 20), 100);
+            
+            // SECURITY FIX: Validate ORDER BY
+            $orderBy = $this->validateOrderBy('kyc_verifications', $request->input('order_by'), 'created_at');
+            $direction = $this->validateSortDirection($request->input('direction'));
 
             $kyc = DB::table('kyc_verifications')
                 ->join('users', 'kyc_verifications.user_id', '=', 'users.id')
                 ->where('kyc_verifications.tenant_id', $tenantId) // Tenant scoped
                 ->where('kyc_verifications.status', 'pending')
                 ->select('kyc_verifications.*', 'users.name', 'users.email')
-                ->orderBy('kyc_verifications.created_at', 'asc')
+                ->orderBy('kyc_verifications.' . $orderBy, $direction)
                 ->paginate($perPage);
 
             return response()->json([
@@ -288,6 +343,8 @@ class AdminController extends Controller
 
     /**
      * Get security event logs (tenant-scoped).
+     * 
+     * SECURITY FIX: Bug #4 - Added ORDER BY validation
      */
     public function securityLogs(Request $request)
     {
@@ -297,10 +354,13 @@ class AdminController extends Controller
             $severity = $request->input('severity'); // low, medium, high, critical
             $eventType = $request->input('event_type');
             $suspicious = $request->input('suspicious'); // true/false
+            
+            // SECURITY FIX: Validate ORDER BY
+            $orderBy = $this->validateOrderBy('security_events', $request->input('order_by'), 'created_at');
+            $direction = $this->validateSortDirection($request->input('direction'));
 
             $query = DB::table('security_events')
-                ->where('tenant_id', $tenantId) // Tenant scoped
-                ->orderByDesc('created_at');
+                ->where('tenant_id', $tenantId); // Tenant scoped
 
             if ($severity) {
                 $query->where('severity', $severity);
@@ -314,7 +374,8 @@ class AdminController extends Controller
                 $query->where('is_suspicious', $suspicious === 'true');
             }
 
-            $logs = $query->paginate($perPage);
+            // SECURITY FIX: Use validated ORDER BY
+            $logs = $query->orderBy($orderBy, $direction)->paginate($perPage);
 
             return response()->json([
                 'success' => true,
