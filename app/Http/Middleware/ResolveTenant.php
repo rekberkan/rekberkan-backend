@@ -85,7 +85,7 @@ class ResolveTenant
             return null;
         }
 
-        // Validate numeric tenant ID format
+        // Validate numeric tenant ID
         if (!preg_match('/^\d+$/', $tenantId)) {
             return null;
         }
