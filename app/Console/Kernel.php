@@ -1,47 +1,27 @@
 <?php
 
-declare(strict_types=1);
-
 namespace App\Console;
 
-use App\Jobs\ProcessAutoReleaseEscrows;
-use App\Jobs\ProcessExpiredEscrows;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Console\Kernel as ConsoleKernel;
 
 class Kernel extends ConsoleKernel
 {
-    /**
-     * Define the application's command schedule.
-     */
+    protected $commands = [
+        Commands\VerifyAuditChain::class,
+    ];
+
     protected function schedule(Schedule $schedule): void
     {
-        // Process auto-release escrows every 5 minutes
-        $schedule->job(new ProcessAutoReleaseEscrows())
-            ->everyFiveMinutes()
-            ->withoutOverlapping(5)
-            ->onOneServer();
-
-        // Process expired escrows every hour
-        $schedule->job(new ProcessExpiredEscrows())
-            ->hourly()
-            ->withoutOverlapping(10)
-            ->onOneServer();
-
-        // Clean up old security events (keep 90 days)
-        $schedule->command('db:prune', ['--model' => 'App\Models\SecurityEvent'])
+        $schedule->command('audit:verify')
             ->daily()
-            ->at('02:00');
+            ->at('02:00')
+            ->emailOutputOnFailure(config('mail.audit_alert_email'));
 
-        // Clean up expired idempotency keys
-        $schedule->command('db:prune', ['--model' => 'App\Models\IdempotencyKey'])
-            ->daily()
-            ->at('03:00');
+        $schedule->command('step-up:cleanup')
+            ->hourly();
     }
 
-    /**
-     * Register the commands for the application.
-     */
     protected function commands(): void
     {
         $this->load(__DIR__.'/Commands');
