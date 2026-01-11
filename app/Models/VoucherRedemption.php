@@ -5,23 +5,22 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class UserBehaviorLog extends Model
+class VoucherRedemption extends Model
 {
     public const UPDATED_AT = null;
 
-    protected $table = 'user_behavior_log';
-
     protected $fillable = [
         'tenant_id',
+        'voucher_id',
         'user_id',
-        'event_type',
-        'metadata',
-        'ip_address',
-        'user_agent',
+        'escrow_id',
+        'discount_amount',
+        'posting_batch_id',
+        'idempotency_key',
     ];
 
     protected $casts = [
-        'metadata' => 'array',
+        'discount_amount' => 'decimal:2',
         'created_at' => 'datetime',
     ];
 
@@ -30,8 +29,18 @@ class UserBehaviorLog extends Model
         return $this->belongsTo(Tenant::class);
     }
 
+    public function voucher(): BelongsTo
+    {
+        return $this->belongsTo(Voucher::class);
+    }
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function escrow(): BelongsTo
+    {
+        return $this->belongsTo(Escrow::class);
     }
 }

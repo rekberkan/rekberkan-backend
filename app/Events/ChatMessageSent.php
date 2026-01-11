@@ -1,11 +1,10 @@
 <?php
 
-declare(strict_types=1);
-
 namespace App\Events;
 
+use App\Models\ChatMessage;
+use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
-use Illuminate\Broadcasting\PresenceChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
@@ -15,44 +14,30 @@ class ChatMessageSent implements ShouldBroadcast
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
     public function __construct(
-        public string $escrowId,
-        public string $messageId,
-        public string $senderId,
-        public string $senderName,
-        public string $message,
-        public ?string $attachmentUrl = null
+        public ChatMessage $message
     ) {}
 
-    /**
-     * Get the channels the event should broadcast on.
-     */
     public function broadcastOn(): array
     {
         return [
-            new PresenceChannel("escrow-chat.{$this->escrowId}"),
+            new Channel("tenant.{$this->message->tenant_id}.escrow.{$this->message->escrow_id}.chat"),
         ];
     }
 
-    /**
-     * The event's broadcast name.
-     */
     public function broadcastAs(): string
     {
         return 'message.sent';
     }
 
-    /**
-     * Get the data to broadcast.
-     */
     public function broadcastWith(): array
     {
         return [
-            'message_id' => $this->messageId,
-            'sender_id' => $this->senderId,
-            'sender_name' => $this->senderName,
-            'message' => $this->message,
-            'attachment_url' => $this->attachmentUrl,
-            'timestamp' => now()->toIso8601String(),
+            'id' => $this->message->id,
+            'escrow_id' => $this->message->escrow_id,
+            'sender_type' => $this->message->sender_type,
+            'sender_id' => $this->message->sender_id,
+            'body' => $this->message->body,
+            'created_at' => $this->message->created_at->toIso8601String(),
         ];
     }
 }

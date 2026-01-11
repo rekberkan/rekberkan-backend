@@ -5,23 +5,23 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class UserBehaviorLog extends Model
+class CampaignParticipation extends Model
 {
     public const UPDATED_AT = null;
 
-    protected $table = 'user_behavior_log';
-
     protected $fillable = [
         'tenant_id',
+        'campaign_id',
         'user_id',
-        'event_type',
-        'metadata',
-        'ip_address',
-        'user_agent',
+        'escrow_id',
+        'benefit_amount',
+        'posting_batch_id',
+        'status',
+        'idempotency_key',
     ];
 
     protected $casts = [
-        'metadata' => 'array',
+        'benefit_amount' => 'decimal:2',
         'created_at' => 'datetime',
     ];
 
@@ -30,8 +30,18 @@ class UserBehaviorLog extends Model
         return $this->belongsTo(Tenant::class);
     }
 
+    public function campaign(): BelongsTo
+    {
+        return $this->belongsTo(Campaign::class);
+    }
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function escrow(): BelongsTo
+    {
+        return $this->belongsTo(Escrow::class);
     }
 }

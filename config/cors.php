@@ -1,48 +1,33 @@
 <?php
 
-declare(strict_types=1);
-
 return [
-
-    /*
-    |--------------------------------------------------------------------------
-    | Cross-Origin Resource Sharing (CORS) Configuration
-    |--------------------------------------------------------------------------
-    |
-    | Production: Strict whitelist of allowed origins
-    | Development: Can be relaxed for testing
-    |
-    */
-
-    'paths' => ['api/*', 'health/*'],
+    'paths' => ['api/*', 'sanctum/csrf-cookie', 'broadcasting/auth'],
 
     'allowed_methods' => ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 
     'allowed_origins' => array_filter([
         env('FRONTEND_URL'),
-        env('ADMIN_URL'),
+        env('ADMIN_FRONTEND_URL'),
     ]),
 
     'allowed_origins_patterns' => [],
 
     'allowed_headers' => [
-        'Accept',
-        'Authorization',
         'Content-Type',
-        'X-Correlation-ID',
-        'X-Request-ID',
+        'Authorization',
+        'X-Requested-With',
         'X-Tenant-ID',
-        'X-CSRF-TOKEN',
+        'X-Device-Fingerprint',
+        'Accept',
     ],
 
     'exposed_headers' => [
-        'X-Correlation-ID',
         'X-RateLimit-Limit',
         'X-RateLimit-Remaining',
+        'X-Request-ID',
     ],
 
     'max_age' => 86400,
 
     'supports_credentials' => true,
-
 ];

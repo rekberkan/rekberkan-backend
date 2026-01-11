@@ -4,20 +4,19 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
-class UserBehaviorLog extends Model
+class Notification extends Model
 {
     public const UPDATED_AT = null;
-
-    protected $table = 'user_behavior_log';
 
     protected $fillable = [
         'tenant_id',
         'user_id',
-        'event_type',
+        'type',
+        'title',
+        'body',
         'metadata',
-        'ip_address',
-        'user_agent',
     ];
 
     protected $casts = [
@@ -33,5 +32,15 @@ class UserBehaviorLog extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function read(): HasOne
+    {
+        return $this->hasOne(NotificationRead::class);
+    }
+
+    public function isRead(): bool
+    {
+        return $this->read !== null;
     }
 }
