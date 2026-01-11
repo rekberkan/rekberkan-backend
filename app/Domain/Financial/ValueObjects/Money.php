@@ -21,33 +21,33 @@ final class Money implements JsonSerializable, Stringable
     /**
      * Create Money from integer amount (in minor units/cents).
      * 
-     * Example: Money::fromMinorUnits(150000) = Rp 1,500.00
+     * Example: Money::fromMinorUnits(150000, 'IDR') = Rp 1,500.00
      */
-    public static function fromMinorUnits(int $amount): self
+    public static function fromMinorUnits(int $amount, string $currency = 'IDR'): self
     {
         return new self(
-            BrickMoney::ofMinor($amount, Currency::of('IDR'))
+            BrickMoney::ofMinor($amount, Currency::of($currency))
         );
     }
 
     /**
      * Create Money from major units (rupiah).
      * 
-     * Example: Money::fromMajorUnits('1500.50') = Rp 1,500.50
+     * Example: Money::fromMajorUnits('1500.50', 'IDR') = Rp 1,500.50
      */
-    public static function fromMajorUnits(string $amount): self
+    public static function fromMajorUnits(string $amount, string $currency = 'IDR'): self
     {
         return new self(
-            BrickMoney::of($amount, Currency::of('IDR'))
+            BrickMoney::of($amount, Currency::of($currency))
         );
     }
 
     /**
      * Create zero amount.
      */
-    public static function zero(): self
+    public static function zero(string $currency = 'IDR'): self
     {
-        return self::fromMinorUnits(0);
+        return self::fromMinorUnits(0, $currency);
     }
 
     /**
@@ -67,7 +67,15 @@ final class Money implements JsonSerializable, Stringable
     }
 
     /**
-     * Add money.
+     * Get currency code.
+     */
+    public function getCurrency(): string
+    {
+        return $this->amount->getCurrency()->getCurrencyCode();
+    }
+
+    /**
+     * Add money (returns new Money instance).
      */
     public function add(self $other): self
     {
@@ -75,7 +83,7 @@ final class Money implements JsonSerializable, Stringable
     }
 
     /**
-     * Subtract money.
+     * Subtract money (returns new Money instance).
      */
     public function subtract(self $other): self
     {
@@ -83,7 +91,7 @@ final class Money implements JsonSerializable, Stringable
     }
 
     /**
-     * Multiply by scalar.
+     * Multiply by scalar (returns new Money instance).
      */
     public function multiply(int|float|string $multiplier): self
     {
@@ -91,7 +99,7 @@ final class Money implements JsonSerializable, Stringable
     }
 
     /**
-     * Divide by scalar.
+     * Divide by scalar (returns new Money instance).
      */
     public function divide(int|float|string $divisor): self
     {
@@ -164,7 +172,7 @@ final class Money implements JsonSerializable, Stringable
     }
 
     /**
-     * Absolute value.
+     * Absolute value (returns new Money instance).
      */
     public function abs(): self
     {
@@ -172,7 +180,7 @@ final class Money implements JsonSerializable, Stringable
     }
 
     /**
-     * Negate (change sign).
+     * Negate / change sign (returns new Money instance).
      */
     public function negate(): self
     {
@@ -184,7 +192,15 @@ final class Money implements JsonSerializable, Stringable
      */
     public function format(): string
     {
-        return 'Rp ' . number_format((float) $this->getMajorUnits(), 2, ',', '.');
+        $currency = $this->getCurrency();
+        $formatted = number_format((float) $this->getMajorUnits(), 2, ',', '.');
+        
+        return match ($currency) {
+            'IDR' => 'Rp ' . $formatted,
+            'USD' => '$' . $formatted,
+            'EUR' => '€' . $formatted,
+            default => $currency . ' ' . $formatted,
+        };
     }
 
     /**
@@ -194,7 +210,7 @@ final class Money implements JsonSerializable, Stringable
     {
         return [
             'amount' => $this->getMinorUnits(),
-            'currency' => 'IDR',
+            'currency' => $this->getCurrency(),
             'formatted' => $this->format(),
         ];
     }

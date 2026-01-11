@@ -12,6 +12,8 @@ use InvalidArgumentException;
  */
 final class STAN
 {
+    private const SEQUENCE_TTL = 86400; // 24 hours in seconds
+
     private string $value;
 
     private function __construct(string $value)
@@ -35,11 +37,30 @@ final class STAN
         return new self($date . $sequence);
     }
 
+    /**
+     * Get next sequence with automatic daily TTL.
+     * 
+     * Redis key auto-expires at midnight, ensuring daily reset.
+     */
     private static function getNextSequence(int $tenantId): int
     {
-        // This will be implemented with Redis INCR for atomic sequence
         $key = "stan:sequence:{$tenantId}:" . date('Ymd');
-        return \Illuminate\Support\Facades\Redis::incr($key);
+        $redis = \Illuminate\Support\Facades\Redis::connection();
+        
+        // Increment atomically
+        $sequence = $redis->incr($key);
+        
+        // Set TTL only on first increment (when key is new)
+        if ($sequence === 1) {
+            // Calculate seconds until midnight
+            $midnight = strtotime('tomorrow 00:00:00');
+            $secondsUntilMidnight = $midnight - time();
+            
+            // Set expiry to midnight (ensures daily reset)
+            $redis->expire($key, $secondsUntilMidnight);
+        }
+        
+        return $sequence;
     }
 
     public function value(): string
