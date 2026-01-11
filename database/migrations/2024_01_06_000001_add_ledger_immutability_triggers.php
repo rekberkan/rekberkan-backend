@@ -78,7 +78,10 @@ return new class extends Migration
         DB::statement("
             ALTER TABLE ledger_lines
             ADD CONSTRAINT positive_amount_check
-            CHECK (amount > 0)
+            CHECK (
+                (debit_amount > 0 AND credit_amount = 0)
+                OR (credit_amount > 0 AND debit_amount = 0)
+            )
         ");
     }
 

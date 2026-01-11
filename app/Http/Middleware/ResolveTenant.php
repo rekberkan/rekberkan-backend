@@ -31,7 +31,7 @@ class ResolveTenant
             $request->attributes->set('tenant_id', $tenantId);
 
             // Set PostgreSQL session variable for RLS
-            DB::statement("SET app.tenant_id = ?", [$tenantId]);
+            DB::statement("SET LOCAL app.current_tenant_id = ?", [$tenantId]);
 
             // Add to log context
             \Illuminate\Support\Facades\Log::shareContext([
@@ -60,8 +60,8 @@ class ResolveTenant
 
         // 3. Try JWT claim
         $user = $request->user();
-        if ($user && method_exists($user, 'tenant_id')) {
-            return $user->tenant_id;
+        if ($user && isset($user->tenant_id)) {
+            return $this->validateAndReturnTenantId($user->tenant_id);
         }
 
         // 4. Try query parameter (for webhooks)
@@ -94,6 +94,6 @@ class ResolveTenant
             return null;
         }
 
-        return $tenantId;
+        return null;
     }
 }

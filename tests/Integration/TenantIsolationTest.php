@@ -53,7 +53,7 @@ class TenantIsolationTest extends TestCase
         ]);
 
         // Set tenant context to tenant1
-        DB::statement("SET app.tenant_id = ?", [$tenant1Id]);
+        DB::statement("SET app.tenant_id = ?::bigint", [$tenant1Id]);
 
         // Should only see tenant1's user
         $visibleUsers = DB::table('users')->get();
@@ -61,7 +61,7 @@ class TenantIsolationTest extends TestCase
         $this->assertEquals($user1Id, $visibleUsers->first()->id);
 
         // Switch to tenant2
-        DB::statement("SET app.tenant_id = ?", [$tenant2Id]);
+        DB::statement("SET app.tenant_id = ?::bigint", [$tenant2Id]);
 
         // Should only see tenant2's user
         $visibleUsers = DB::table('users')->get();
@@ -69,7 +69,7 @@ class TenantIsolationTest extends TestCase
         $this->assertEquals($user2Id, $visibleUsers->first()->id);
 
         // Attempt to insert with wrong tenant_id should fail
-        DB::statement("SET app.tenant_id = ?", [$tenant1Id]);
+        DB::statement("SET app.tenant_id = ?::bigint", [$tenant1Id]);
         
         $this->expectException(\Exception::class);
         DB::table('users')->insert([
@@ -94,7 +94,7 @@ class TenantIsolationTest extends TestCase
             'updated_at' => now(),
         ]);
 
-        DB::statement("SET app.tenant_id = ?", [$tenantId]);
+        DB::statement("SET app.tenant_id = ?::bigint", [$tenantId]);
         
         DB::table('users')->insert([
             'tenant_id' => $tenantId,
