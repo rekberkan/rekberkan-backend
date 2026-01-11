@@ -154,7 +154,7 @@ final class Escrow extends Model
 
     public function isOverdueSLA(): bool
     {
-        if ($this->status === EscrowStatus::DELIVERED) {
+        if ($this->status === EscrowStatus::DELIVERED && $this->sla_auto_release_at !== null) {
             return now()->isAfter($this->sla_auto_release_at);
         }
         return false;
@@ -162,14 +162,19 @@ final class Escrow extends Model
 
     public function isExpired(): bool
     {
-        if ($this->status === EscrowStatus::CREATED) {
+        if ($this->status === EscrowStatus::CREATED && $this->sla_auto_refund_at !== null) {
             return now()->isAfter($this->sla_auto_refund_at);
         }
         return false;
     }
 
+    /**
+     * Lock for update to prevent race conditions
+     * 
+     * @throws \Illuminate\Database\Eloquent\ModelNotFoundException
+     */
     public function lockForUpdate(): self
     {
-        return self::where('id', $this->id)->lockForUpdate()->first();
+        return self::where('id', $this->id)->lockForUpdate()->firstOrFail();
     }
 }
