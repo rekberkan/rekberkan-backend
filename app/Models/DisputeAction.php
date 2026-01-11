@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class DisputeAction extends Model
 {
+    public const CREATED_AT = 'submitted_at';
     public const UPDATED_AT = null;
 
     protected $fillable = [
