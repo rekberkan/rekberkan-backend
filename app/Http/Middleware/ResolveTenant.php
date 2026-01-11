@@ -1,100 +1,155 @@
 <?php
 
-declare(strict_types=1);
-
 namespace App\Http\Middleware;
 
+use App\Models\Tenant;
 use Closure;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
 class ResolveTenant
 {
     /**
-     * Resolve tenant from multiple sources with priority order.
-     * 
-     * Priority:
-     * 1. Subdomain (tenant.rekberkan.com)
-     * 2. X-Tenant-ID header
-     * 3. JWT claim (tenant_id)
-     * 4. Query parameter (for webhooks/callbacks)
-     * 
-     * Sets tenant context for RLS policies.
+     * Handle an incoming request with proper tenant resolution and validation.
      */
     public function handle(Request $request, Closure $next): Response
     {
         $tenantId = $this->resolveTenantId($request);
 
-        if ($tenantId) {
-            // Store in request attributes
-            $request->attributes->set('tenant_id', $tenantId);
-
-            // Set PostgreSQL session variable for RLS
-            DB::statement("SET LOCAL app.current_tenant_id = ?", [$tenantId]);
-
-            // Add to log context
-            \Illuminate\Support\Facades\Log::shareContext([
-                'tenant_id' => $tenantId,
-            ]);
+        if (!$tenantId) {
+            return response()->json([
+                'error' => 'Tenant Required',
+                'message' => 'Valid tenant identification is required',
+            ], 400);
         }
+
+        // Validate tenant exists and is active
+        $tenant = $this->getTenant($tenantId);
+
+        if (!$tenant) {
+            Log::warning('Attempted access with invalid tenant', [
+                'tenant_id' => $tenantId,
+                'ip' => $request->ip(),
+                'user' => $request->user()?->id,
+            ]);
+
+            return response()->json([
+                'error' => 'Invalid Tenant',
+                'message' => 'The specified tenant does not exist or is inactive',
+            ], 404);
+        }
+
+        // Set tenant context
+        app()->instance('tenant', $tenant);
+        $request->merge(['tenant_id' => $tenant->id]);
+        $request->attributes->set('tenant', $tenant);
+
+        // Set tenant ID for query scope
+        config(['app.current_tenant_id' => $tenant->id]);
 
         return $next($request);
     }
 
     /**
-     * Resolve tenant ID from request sources.
+     * Resolve tenant ID from multiple sources with proper priority
      */
     private function resolveTenantId(Request $request): ?int
     {
-        // 1. Try subdomain
-        $host = $request->getHost();
-        if (preg_match('/^([a-z0-9-]+)\.rekberkan\./', $host, $matches)) {
-            return $this->validateAndReturnTenantId($matches[1]);
+        // Priority 1: JWT token tenant claim (most secure)
+        if ($user = $request->user()) {
+            if (isset($user->tenant_id) && $user->tenant_id > 0) {
+                return $user->tenant_id;
+            }
         }
 
-        // 2. Try X-Tenant-ID header
-        if ($request->hasHeader('X-Tenant-ID')) {
-            return $this->validateAndReturnTenantId($request->header('X-Tenant-ID'));
+        // Priority 2: X-Tenant-ID header (consistent casing)
+        $headerTenantId = $request->header('X-Tenant-ID');
+        if ($headerTenantId !== null) {
+            // Validate it's a positive integer
+            if (is_numeric($headerTenantId) && (int) $headerTenantId > 0) {
+                return (int) $headerTenantId;
+            }
+            
+            // If header exists but invalid, log and reject
+            Log::warning('Invalid X-Tenant-ID header', [
+                'value' => $headerTenantId,
+                'type' => gettype($headerTenantId),
+            ]);
+            return null;
         }
 
-        // 3. Try JWT claim
-        $user = $request->user();
-        if ($user && method_exists($user, 'tenant_id')) {
-            return is_numeric($user->tenant_id) ? (int) $user->tenant_id : null;
-        }
-
-        // 4. Try query parameter (for webhooks)
-        if ($request->has('tenant_id')) {
-            return $this->validateAndReturnTenantId($request->query('tenant_id'));
+        // Priority 3: Subdomain resolution (supports both numeric and slug)
+        $subdomain = $this->extractSubdomain($request);
+        if ($subdomain) {
+            return $this->resolveTenantFromSubdomain($subdomain);
         }
 
         return null;
     }
 
     /**
-     * Validate tenant ID format and existence.
+     * Extract subdomain from request
      */
-    private function validateAndReturnTenantId(mixed $tenantId): ?int
+    private function extractSubdomain(Request $request): ?string
     {
-        if (is_int($tenantId) && $tenantId > 0) {
-            return $tenantId;
+        $host = $request->getHost();
+        $baseDomain = config('app.base_domain', 'rekberkan.com');
+
+        // Remove base domain to get subdomain
+        if (str_ends_with($host, '.' . $baseDomain)) {
+            $subdomain = str_replace('.' . $baseDomain, '', $host);
+            return $subdomain !== '' ? $subdomain : null;
         }
 
-        if (!is_string($tenantId)) {
-            return null;
+        // Handle localhost/IP for development
+        if (app()->environment('local')) {
+            $parts = explode('.', $host);
+            if (count($parts) > 1) {
+                return $parts[0];
+            }
         }
 
-        // Validate bigint format
-        if (!preg_match('/^\d+$/', $tenantId)) {
-            return null;
+        return null;
+    }
+
+    /**
+     * Resolve tenant from subdomain (supports slug or numeric ID)
+     */
+    private function resolveTenantFromSubdomain(string $subdomain): ?int
+    {
+        // Try numeric ID first
+        if (is_numeric($subdomain)) {
+            $tenantId = (int) $subdomain;
+            if ($tenantId > 0) {
+                return $tenantId;
+            }
         }
 
-        $tenantId = (int) $tenantId;
-        if ($tenantId <= 0) {
-            return null;
-        }
+        // Try slug lookup with caching
+        return Cache::remember(
+            "tenant:slug:{$subdomain}",
+            now()->addHour(),
+            fn() => Tenant::where('slug', $subdomain)
+                ->where('status', 'active')
+                ->value('id')
+        );
+    }
 
-        return (int) $tenantId;
+    /**
+     * Get tenant with caching and validation
+     */
+    private function getTenant(int $tenantId): ?Tenant
+    {
+        return Cache::remember(
+            "tenant:id:{$tenantId}",
+            now()->addMinutes(15),
+            function () use ($tenantId) {
+                return Tenant::where('id', $tenantId)
+                    ->where('status', 'active')
+                    ->first();
+            }
+        );
     }
 }

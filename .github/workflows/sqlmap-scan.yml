@@ -1,0 +1,123 @@
+name: SQLMap Security Scan
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Run every Monday at 2 AM WIB (Sunday 7 PM UTC)
+    - cron: '0 19 * * 0'
+
+jobs:
+  sqlmap-scan:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: rekberkan
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: rekberkan_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo, pdo_pgsql, mbstring, xml, curl
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Setup environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+          php artisan config:clear
+
+      - name: Run migrations
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_DATABASE: rekberkan_test
+          DB_USERNAME: rekberkan
+          DB_PASSWORD: test_password
+        run: php artisan migrate --force
+
+      - name: Start Laravel server
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_DATABASE: rekberkan_test
+          DB_USERNAME: rekberkan
+          DB_PASSWORD: test_password
+        run: |
+          php artisan serve --host=127.0.0.1 --port=8000 &
+          sleep 5
+
+      - name: Install SQLMap
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sqlmap
+
+      - name: Run SQLMap scan on critical endpoints
+        run: |
+          # Scan login endpoint
+          sqlmap -u "http://127.0.0.1:8000/api/auth/login" \
+            --data="email=test@example.com&password=test123" \
+            --method=POST \
+            --level=5 \
+            --risk=3 \
+            --batch \
+            --random-agent \
+            --threads=5 \
+            --tamper=space2comment \
+            --output-dir=./sqlmap-results || true
+
+          # Scan transaction endpoints (with auth token)
+          # Note: Token should be obtained first in real scenarios
+          sqlmap -u "http://127.0.0.1:8000/api/transactions?search=test" \
+            --method=GET \
+            --level=3 \
+            --risk=2 \
+            --batch \
+            --random-agent \
+            --output-dir=./sqlmap-results || true
+
+      - name: Check SQLMap results
+        run: |
+          if grep -r "sqlmap identified the following injection point" ./sqlmap-results/ 2>/dev/null; then
+            echo "⚠️ SQL Injection vulnerability detected!"
+            grep -r "Parameter:" ./sqlmap-results/
+            exit 1
+          else
+            echo "✅ No SQL injection vulnerabilities found"
+          fi
+
+      - name: Upload SQLMap results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sqlmap-scan-results
+          path: ./sqlmap-results/
+          retention-days: 30
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "SQLMap scan detected potential SQL injection vulnerabilities!"
+          echo "Please review the artifacts for detailed results."

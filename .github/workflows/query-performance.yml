@@ -1,0 +1,109 @@
+name: Query Performance Testing
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  query-performance:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: rekberkan
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: rekberkan_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo, pdo_pgsql, mbstring, xml, curl
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Setup environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Run migrations
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_DATABASE: rekberkan_test
+          DB_USERNAME: rekberkan
+          DB_PASSWORD: test_password
+        run: php artisan migrate --force
+
+      - name: Seed test data
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: localhost
+          DB_PORT: 5432
+        run: php artisan db:seed --class=PerformanceTestSeeder --force
+
+      - name: Run query performance tests
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: localhost
+          DB_PORT: 5432
+        run: |
+          php artisan test --filter=QueryPerformanceTest --stop-on-failure
+
+      - name: Analyze slow queries
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: localhost
+          DB_PORT: 5432
+        run: |
+          php artisan performance:analyze-queries
+
+      - name: Check query performance thresholds
+        run: |
+          # Parse performance results
+          if [ -f "storage/logs/performance.log" ]; then
+            echo "📊 Query Performance Results:"
+            cat storage/logs/performance.log
+            
+            # Check for queries exceeding threshold (e.g., 100ms)
+            SLOW_QUERIES=$(grep -c "duration: [1-9][0-9][0-9]\+" storage/logs/performance.log || echo 0)
+            
+            if [ $SLOW_QUERIES -gt 0 ]; then
+              echo "⚠️ Found $SLOW_QUERIES slow queries (>100ms)"
+              echo "Please optimize these queries before merging."
+              exit 1
+            else
+              echo "✅ All queries within performance threshold"
+            fi
+          fi
+
+      - name: Generate performance report
+        if: always()
+        run: |
+          php artisan performance:report --output=performance-report.html
+
+      - name: Upload performance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: query-performance-report
+          path: performance-report.html
+          retention-days: 30
