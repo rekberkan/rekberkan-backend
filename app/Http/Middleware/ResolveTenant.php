@@ -31,7 +31,7 @@ class ResolveTenant
             $request->attributes->set('tenant_id', $tenantId);
 
             // Set PostgreSQL session variable for RLS
-            DB::statement("SET app.tenant_id = ?::bigint", [$tenantId]);
+            DB::statement("SET LOCAL app.current_tenant_id = ?", [$tenantId]);
 
             // Add to log context
             \Illuminate\Support\Facades\Log::shareContext([
@@ -78,18 +78,18 @@ class ResolveTenant
     private function validateAndReturnTenantId(mixed $tenantId): ?int
     {
         if (is_int($tenantId)) {
-            return (string) $tenantId;
+            return $tenantId;
         }
 
         if (!is_string($tenantId)) {
             return null;
         }
 
-        // Validate bigint format
+        // Validate numeric tenant ID format
         if (!preg_match('/^\d+$/', $tenantId)) {
             return null;
         }
 
-        return (int) $normalized;
+        return (int) $tenantId;
     }
 }
