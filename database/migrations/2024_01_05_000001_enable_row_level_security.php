@@ -76,16 +76,12 @@ return new class extends Migration
             USING (true)
         ");
 
-        // Posting batches use tenant_id from related messages
+        // Posting batches are tenant-scoped by tenant_id
         DB::statement("ALTER TABLE posting_batches ENABLE ROW LEVEL SECURITY");
         DB::statement("
             CREATE POLICY posting_batch_policy ON posting_batches
             USING (
-                EXISTS (
-                    SELECT 1 FROM financial_messages
-                    WHERE financial_messages.id = posting_batches.financial_message_id
-                    AND financial_messages.tenant_id = current_setting('app.tenant_id', TRUE)::bigint
-                )
+                tenant_id = current_setting('app.tenant_id', TRUE)::uuid
             )
         ");
     }
