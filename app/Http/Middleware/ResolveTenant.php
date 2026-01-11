@@ -61,7 +61,7 @@ class ResolveTenant
         // 3. Try JWT claim
         $user = $request->user();
         if ($user && method_exists($user, 'tenant_id')) {
-            return $user->tenant_id;
+            return (string) $user->tenant_id;
         }
 
         // 4. Try query parameter (for webhooks)
