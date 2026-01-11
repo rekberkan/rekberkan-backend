@@ -44,8 +44,13 @@ final class PlatformWallet extends Model
         return Money::IDR($this->available_balance);
     }
 
+    /**
+     * Lock for update to prevent race conditions
+     * 
+     * @throws \Illuminate\Database\Eloquent\ModelNotFoundException
+     */
     public function lockForUpdate(): self
     {
-        return self::where('id', $this->id)->lockForUpdate()->first();
+        return self::where('id', $this->id)->lockForUpdate()->firstOrFail();
     }
 }
