@@ -12,6 +12,7 @@ use App\Domain\Escrow\Enums\EscrowEvent;
 use App\Domain\Ledger\Contracts\LedgerServiceInterface;
 use App\Exceptions\Escrow\InvalidStateTransitionException;
 use App\Exceptions\Escrow\InsufficientBalanceException;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -107,7 +108,11 @@ final class EscrowService
             }
 
             // Check balance
-            $wallet = $escrow->buyerWallet()->lockForUpdate()->firstOrFail();
+            try {
+                $wallet = $escrow->buyerWallet()->lockForUpdate()->firstOrFail();
+            } catch (ModelNotFoundException $exception) {
+                throw new \InvalidArgumentException('Buyer wallet not found', 0, $exception);
+            }
             if (!$wallet->hasAvailableBalance($escrow->getAmount())) {
                 throw new InsufficientBalanceException();
             }
