@@ -14,7 +14,7 @@ return new class extends Migration
             $table->foreignId('tenant_id')->constrained()->cascadeOnDelete();
             $table->foreignId('campaign_id')->constrained()->cascadeOnDelete();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('escrow_id')->nullable()->constrained()->nullOnDelete();
+            $table->foreignUuid('escrow_id')->nullable()->constrained()->nullOnDelete();
             $table->decimal('benefit_amount', 20, 2)->nullable();
             $table->foreignUuid('posting_batch_id')->nullable()->constrained('posting_batches');
             $table->enum('status', ['PENDING', 'COMPLETED', 'REVERSED'])->default('PENDING');

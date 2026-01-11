@@ -60,8 +60,8 @@ class ResolveTenant
 
         // 3. Try JWT claim
         $user = $request->user();
-        if ($user && method_exists($user, 'tenant_id')) {
-            return (string) $user->tenant_id;
+        if ($user && isset($user->tenant_id)) {
+            return $this->validateAndReturnTenantId($user->tenant_id);
         }
 
         // 4. Try query parameter (for webhooks)
@@ -78,18 +78,17 @@ class ResolveTenant
     private function validateAndReturnTenantId(mixed $tenantId): ?int
     {
         if (is_int($tenantId)) {
-            return $tenantId;
+            return $tenantId > 0 ? $tenantId : null;
         }
 
-        if (!is_string($tenantId)) {
-            return null;
-        }
+        if (is_string($tenantId) && ctype_digit($tenantId)) {
+            $parsedId = (int) $tenantId;
 
         // Validate bigint format
         if (!preg_match('/^\d+$/', $tenantId)) {
             return null;
         }
 
-        return (int) $tenantId;
+        return null;
     }
 }
