@@ -78,7 +78,7 @@ final class Escrow extends Model
             }
             
             // Calculate fee if not set
-            if (!$model->fee_amount) {
+            if ($model->fee_amount === null) {
                 $feePercentage = $model->tenant->getConfigValue('fee_percentage', 5.00);
                 $model->fee_amount = (int) ($model->amount * ($feePercentage / 100));
             }
