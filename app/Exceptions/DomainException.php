@@ -11,13 +11,6 @@ abstract class DomainException extends Exception
     protected string $type = 'https://rekberkan.com/errors/domain-error';
     protected string $title = 'Domain Error';
     protected int $statusCode = 400;
-    protected array $context = [];
-
-    public function __construct(string $message = '', array $context = [])
-    {
-        parent::__construct($message);
-        $this->context = $context;
-    }
 
     public function getType(): string
     {
@@ -34,8 +27,16 @@ abstract class DomainException extends Exception
         return $this->statusCode;
     }
 
-    public function getContext(): array
+    /**
+     * Convert to RFC 7807 Problem Details
+     */
+    public function toProblemDetails(): array
     {
-        return $this->context;
+        return [
+            'type' => $this->getType(),
+            'title' => $this->getTitle(),
+            'status' => $this->getStatusCode(),
+            'detail' => $this->getMessage(),
+        ];
     }
 }
