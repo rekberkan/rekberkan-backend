@@ -45,7 +45,7 @@ class ResolveTenant
     /**
      * Resolve tenant ID from request sources.
      */
-    private function resolveTenantId(Request $request): ?string
+    private function resolveTenantId(Request $request): ?int
     {
         // 1. Try subdomain
         $host = $request->getHost();
@@ -75,7 +75,7 @@ class ResolveTenant
     /**
      * Validate tenant ID format and existence.
      */
-    private function validateAndReturnTenantId(mixed $tenantId): ?string
+    private function validateAndReturnTenantId(mixed $tenantId): ?int
     {
         if (is_int($tenantId)) {
             return (string) $tenantId;
@@ -90,6 +90,6 @@ class ResolveTenant
             return null;
         }
 
-        return $tenantId;
+        return (int) $normalized;
     }
 }
