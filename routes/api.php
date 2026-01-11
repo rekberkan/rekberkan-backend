@@ -15,37 +15,57 @@ use App\Http\Controllers\Api\V1\MembershipController;
 use App\Http\Controllers\Api\V1\Admin\AdminController;
 use App\Http\Controllers\Api\V1\Admin\AdminConfigController;
 use App\Http\Middleware\CheckAdminRole;
+use App\Http\Middleware\VerifyXenditWebhook;
+use App\Http\Middleware\VerifyMidtransWebhook;
 use Illuminate\Support\Facades\Route;
 
 // Health check endpoints (no authentication required)
 Route::get('/health/live', [HealthController::class, 'live'])->name('health.live');
 Route::get('/health/ready', [HealthController::class, 'ready'])->name('health.ready');
 
-// API routes requiring authentication
+// API routes
 Route::prefix('v1')->group(function () {
-    Route::post('auth/register', [AuthController::class, 'register']);
-    Route::post('auth/login', [AuthController::class, 'login']);
-    Route::post('auth/refresh', [AuthController::class, 'refresh']);
+    // Auth routes with rate limiting
+    Route::middleware(['throttle:auth'])->group(function () {
+        Route::post('auth/register', [AuthController::class, 'register']);
+        Route::post('auth/login', [AuthController::class, 'login']);
+        Route::post('auth/refresh', [AuthController::class, 'refresh']);
+    });
 
-    Route::post('webhooks/xendit', [DepositController::class, 'webhook']);
-    Route::post('webhooks/midtrans', [WebhookController::class, 'midtransNotification']);
+    // Webhook routes with signature verification (CRITICAL FIX: Bug #1)
+    Route::prefix('webhooks')->group(function () {
+        Route::post('xendit', [DepositController::class, 'webhook'])
+            ->middleware(VerifyXenditWebhook::class)
+            ->name('webhooks.xendit');
 
+        Route::post('midtrans', [WebhookController::class, 'midtransNotification'])
+            ->middleware(VerifyMidtransWebhook::class)
+            ->name('webhooks.midtrans');
+    });
+
+    // Authenticated routes
     Route::middleware(['auth:api'])->group(function () {
         Route::post('auth/logout', [AuthController::class, 'logout']);
         Route::get('auth/me', [AuthController::class, 'me']);
 
-        Route::get('deposits', [DepositController::class, 'index']);
-        Route::post('deposits', [DepositController::class, 'store']);
-        Route::get('deposits/{id}', [DepositController::class, 'show']);
+        // Deposit routes with rate limiting (FIX: Bug #7)
+        Route::middleware(['throttle:deposit'])->group(function () {
+            Route::get('deposits', [DepositController::class, 'index']);
+            Route::post('deposits', [DepositController::class, 'store']);
+            Route::get('deposits/{id}', [DepositController::class, 'show']);
+        });
 
-        Route::get('escrows', [EscrowController::class, 'index']);
-        Route::post('escrows', [EscrowController::class, 'store']);
-        Route::get('escrows/{id}', [EscrowController::class, 'show']);
-        Route::post('escrows/{id}/fund', [EscrowController::class, 'fund']);
-        Route::post('escrows/{id}/deliver', [EscrowController::class, 'markDelivered']);
-        Route::post('escrows/{id}/release', [EscrowController::class, 'release']);
-        Route::post('escrows/{id}/refund', [EscrowController::class, 'refund']);
-        Route::post('escrows/{id}/dispute', [EscrowController::class, 'dispute']);
+        // Escrow routes with rate limiting (FIX: Bug #7)
+        Route::middleware(['throttle:escrow'])->group(function () {
+            Route::get('escrows', [EscrowController::class, 'index']);
+            Route::post('escrows', [EscrowController::class, 'store']);
+            Route::get('escrows/{id}', [EscrowController::class, 'show']);
+            Route::post('escrows/{id}/fund', [EscrowController::class, 'fund']);
+            Route::post('escrows/{id}/deliver', [EscrowController::class, 'markDelivered']);
+            Route::post('escrows/{id}/release', [EscrowController::class, 'release']);
+            Route::post('escrows/{id}/refund', [EscrowController::class, 'refund']);
+            Route::post('escrows/{id}/dispute', [EscrowController::class, 'dispute']);
+        });
 
         Route::get('campaigns', [CampaignController::class, 'index']);
         Route::get('campaigns/{id}', [CampaignController::class, 'show']);
@@ -74,8 +94,9 @@ Route::prefix('v1')->group(function () {
         Route::post('memberships/cancel', [MembershipController::class, 'cancel']);
         Route::get('memberships/benefits', [MembershipController::class, 'benefits']);
 
+        // Admin routes
         Route::prefix('admin')
-            ->middleware(CheckAdminRole::class)
+            ->middleware([CheckAdminRole::class, 'throttle:admin'])
             ->group(function () {
                 Route::get('users', [AdminController::class, 'users']);
                 Route::get('users/{userId}', [AdminController::class, 'userDetails']);
