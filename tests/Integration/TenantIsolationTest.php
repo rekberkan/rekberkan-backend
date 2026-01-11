@@ -36,7 +36,8 @@ class TenantIsolationTest extends TestCase
             'tenant_id' => $tenant1Id,
             'email' => 'user1@tenant1.com',
             'password' => bcrypt('password'),
-            'name' => 'User 1',
+            'name' => 'User One',
+            'is_active' => true,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -45,7 +46,8 @@ class TenantIsolationTest extends TestCase
             'tenant_id' => $tenant2Id,
             'email' => 'user2@tenant2.com',
             'password' => bcrypt('password'),
-            'name' => 'User 2',
+            'name' => 'User Two',
+            'is_active' => true,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -74,7 +76,8 @@ class TenantIsolationTest extends TestCase
             'tenant_id' => $tenant2Id, // Wrong tenant!
             'email' => 'user3@tenant2.com',
             'password' => bcrypt('password'),
-            'name' => 'User 3',
+            'name' => 'User Three',
+            'is_active' => true,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -97,7 +100,8 @@ class TenantIsolationTest extends TestCase
             'tenant_id' => $tenantId,
             'email' => 'user1@tenant1.com',
             'password' => bcrypt('password'),
-            'name' => 'User 1',
+            'name' => 'User One',
+            'is_active' => true,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
