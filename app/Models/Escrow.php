@@ -154,18 +154,26 @@ final class Escrow extends Model
 
     public function isOverdueSLA(): bool
     {
-        if ($this->status === EscrowStatus::DELIVERED && $this->sla_auto_release_at !== null) {
-            return now()->isAfter($this->sla_auto_release_at);
+        if (!$this->sla_auto_release_at) {
+            return false;
         }
-        return false;
+        if ($this->status !== EscrowStatus::DELIVERED) {
+            return false;
+        }
+
+        return now()->isAfter($this->sla_auto_release_at);
     }
 
     public function isExpired(): bool
     {
-        if ($this->status === EscrowStatus::CREATED && $this->sla_auto_refund_at !== null) {
-            return now()->isAfter($this->sla_auto_refund_at);
+        if (!$this->sla_auto_refund_at) {
+            return false;
         }
-        return false;
+        if ($this->status !== EscrowStatus::CREATED) {
+            return false;
+        }
+
+        return now()->isAfter($this->sla_auto_refund_at);
     }
 
     /**
