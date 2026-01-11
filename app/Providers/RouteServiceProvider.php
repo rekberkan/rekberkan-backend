@@ -81,6 +81,15 @@ class RouteServiceProvider extends ServiceProvider
                 ->by($request->user()?->id ?: $request->ip());
         });
 
+        // Chat operations
+        RateLimiter::for('chat', function (Request $request) {
+            $maxAttempts = config('rate-limiting.chat.max_attempts', 120);
+            $decayMinutes = config('rate-limiting.chat.decay_minutes', 60);
+
+            return Limit::perMinutes($decayMinutes, $maxAttempts)
+                ->by($request->user()?->id ?: $request->ip());
+        });
+
         // Admin operations
         RateLimiter::for('admin', function (Request $request) {
             $maxAttempts = config('rate-limiting.admin.max_attempts', 100);

@@ -84,14 +84,7 @@ class MembershipController extends Controller
 
         try {
             $userId = $request->user()->id;
-            
-            // Get tenantId with fallback to default
-            $tenantId = (int) (
-                $request->attributes->get('tenant_id') 
-                ?? $request->header('X-Tenant-ID') 
-                ?? $request->user()->tenant_id 
-                ?? 1
-            );
+            $tenantId = $this->resolveTenantId($request);
 
             $membership = $this->membershipService->subscribe(
                 $userId,
@@ -152,7 +145,8 @@ class MembershipController extends Controller
             $tier = $membership ? $membership->tier : 'free';
             $benefits = \App\Models\Membership::getTierConfig($tier)['benefits'];
 
-            $usage = $this->membershipService->getUsageStats($userId, $tier, $membership);
+            $tenantId = $this->resolveTenantId($request);
+            $usage = $this->membershipService->getUsageStats($userId, $tenantId, $tier, $membership);
 
             return response()->json([
                 'success' => true,
@@ -167,5 +161,22 @@ class MembershipController extends Controller
                 'message' => 'Failed to fetch benefits',
             ], 500);
         }
+    }
+
+    private function resolveTenantId(Request $request): int
+    {
+        $tenantId = $request->attributes->get('tenant_id') ?? $request->user()?->tenant_id;
+
+        if (!$tenantId || !is_numeric($tenantId)) {
+            abort(400, 'Tenant context is required');
+        }
+
+        $tenantId = (int) $tenantId;
+
+        if ($request->user()?->tenant_id && (int) $request->user()->tenant_id !== $tenantId) {
+            abort(403, 'Access denied to this tenant');
+        }
+
+        return $tenantId;
     }
 }

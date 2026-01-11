@@ -9,6 +9,7 @@ use App\Models\Escrow;
 use App\Domain\Escrow\Enums\EscrowStatus;
 use App\Application\Services\EscrowService;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 final class ProcessAutoReleaseEscrows extends Command
 {
@@ -35,7 +36,7 @@ final class ProcessAutoReleaseEscrows extends Command
                 $this->escrowService->release(
                     escrowId: $escrow->id,
                     userId: 0, // System user
-                    idempotencyKey: "auto-release-{$escrow->id}-" . now()->timestamp,
+                    idempotencyKey: "auto-release-{$escrow->id}-" . Str::uuid(),
                     isAutoRelease: true
                 );
 

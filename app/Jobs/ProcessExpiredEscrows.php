@@ -12,6 +12,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class ProcessExpiredEscrows implements ShouldQueue
 {
@@ -68,13 +69,14 @@ class ProcessExpiredEscrows implements ShouldQueue
 
         foreach ($fundedEscrows as $escrow) {
             try {
-                $idempotencyKey = "auto-refund-{$escrow->id}-" . now()->timestamp;
+                $idempotencyKey = "auto-refund-{$escrow->id}-" . Str::uuid();
 
                 $escrowService->refund(
                     escrowId: $escrow->id,
                     userId: 'system',
                     reason: 'Automatically refunded due to expiration',
-                    idempotencyKey: $idempotencyKey
+                    idempotencyKey: $idempotencyKey,
+                    isAutoRefund: true
                 );
 
                 Log::info("Auto-refunded expired escrow: {$escrow->id}");
