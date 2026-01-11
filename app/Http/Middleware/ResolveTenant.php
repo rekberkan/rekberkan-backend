@@ -77,11 +77,20 @@ class ResolveTenant
      */
     private function validateAndReturnTenantId(mixed $tenantId): ?int
     {
-        if (is_int($tenantId)) {
-            return $tenantId > 0 ? $tenantId : null;
+        if (is_int($tenantId) && $tenantId > 0) {
+            return $tenantId;
+        }
+
+        if (!is_string($tenantId)) {
+            return null;
         }
 
         if (!ctype_digit($tenantId)) {
+            return null;
+        }
+
+        $tenantId = (int) $tenantId;
+        if ($tenantId <= 0) {
             return null;
         }
 
