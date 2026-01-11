@@ -10,6 +10,7 @@ return new class extends Migration
     {
         Schema::create('chat_messages', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('tenant_id')->constrained()->onDelete('cascade');
             $table->foreignUuid('escrow_id')->constrained()->onDelete('cascade');
             $table->foreignId('sender_id')->constrained('users')->onDelete('cascade');
             $table->text('message');
@@ -17,6 +18,7 @@ return new class extends Migration
             $table->timestamp('read_at')->nullable();
             $table->timestamps();
 
+            $table->index(['tenant_id', 'escrow_id', 'created_at']);
             $table->index(['escrow_id', 'created_at']);
             $table->index('sender_id');
         });
