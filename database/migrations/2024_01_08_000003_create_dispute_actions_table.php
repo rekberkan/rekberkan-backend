@@ -24,7 +24,7 @@ return new class extends Migration
             $table->timestamp('submitted_at');
             $table->timestamp('approved_at')->nullable();
             $table->timestamp('executed_at')->nullable();
-            $table->unsignedBigInteger('posting_batch_id')->nullable();
+            $table->foreignUuid('posting_batch_id')->nullable()->constrained('posting_batches');
 
             $table->index(['tenant_id', 'dispute_id']);
             $table->index(['maker_admin_id', 'approval_status']);
