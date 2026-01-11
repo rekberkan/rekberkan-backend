@@ -51,7 +51,7 @@ class ChatService
                 'actor_type' => get_class($sender),
                 'metadata' => [
                     'escrow_id' => $escrow->id,
-                    'message_length' => strlen($body),
+                    'message_length' => mb_strlen($sanitizedBody),
                 ],
             ]);
 

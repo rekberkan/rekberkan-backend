@@ -246,14 +246,16 @@ final class RiskEngine
 
     private function getVoucherAbuseCount(User $user): int
     {
-        return UserBehaviorLog::where('user_id', $user->id)
+        return UserBehaviorLog::where('tenant_id', $user->tenant_id)
+            ->where('user_id', $user->id)
             ->where('event_type', 'VOUCHER_ABUSE')
             ->count();
     }
 
     private function getDeviceChangeCount(User $user): int
     {
-        return UserBehaviorLog::where('user_id', $user->id)
+        return UserBehaviorLog::where('tenant_id', $user->tenant_id)
+            ->where('user_id', $user->id)
             ->where('event_type', 'DEVICE_CHANGE')
             ->where('created_at', '>', now()->subDays(30))
             ->count();
@@ -262,9 +264,12 @@ final class RiskEngine
     private function getLargeEscrowCount(User $user): int
     {
         // Large = > 10,000,000 (100k IDR)
-        return Escrow::where(function ($q) use ($user) {
-            $q->where('buyer_id', $user->id)->orWhere('seller_id', $user->id);
-        })->where('amount', '>', 10000000)->count();
+        return Escrow::where('tenant_id', $user->tenant_id)
+            ->where(function ($q) use ($user) {
+                $q->where('buyer_id', $user->id)->orWhere('seller_id', $user->id);
+            })
+            ->where('amount', '>', 10000000)
+            ->count();
     }
 
     /**
