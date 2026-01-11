@@ -163,6 +163,10 @@ class XenditService
 
         $webhookSecret = config('payment.xendit.webhook_secret');
         $expectedSignature = hash_hmac('sha256', $payload, $webhookSecret);
+
+        if (strlen($signature) !== strlen($expectedSignature)) {
+            return false;
+        }
         
         return hash_equals($expectedSignature, $signature);
     }

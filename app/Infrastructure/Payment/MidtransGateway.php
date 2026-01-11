@@ -54,6 +54,7 @@ class MidtransGateway implements PaymentGatewayInterface
         }
 
         $response = Http::withBasicAuth($this->serverKey, '')
+            ->timeout(10)
             ->post("{$this->baseUrl}/v2/snap/transactions", $payload);
 
         if ($response->failed()) {
@@ -73,6 +74,7 @@ class MidtransGateway implements PaymentGatewayInterface
     public function getPaymentStatus(string $transactionId): array
     {
         $response = Http::withBasicAuth($this->serverKey, '')
+            ->timeout(10)
             ->get("{$this->baseUrl}/v2/{$transactionId}/status");
 
         if ($response->failed()) {
@@ -97,6 +99,7 @@ class MidtransGateway implements PaymentGatewayInterface
     public function cancelPayment(string $transactionId): array
     {
         $response = Http::withBasicAuth($this->serverKey, '')
+            ->timeout(10)
             ->post("{$this->baseUrl}/v2/{$transactionId}/cancel");
 
         if ($response->failed()) {
@@ -116,6 +119,10 @@ class MidtransGateway implements PaymentGatewayInterface
         $grossAmount = $payload['gross_amount'] ?? '';
 
         $expectedSignature = hash('sha512', $orderId . $statusCode . $grossAmount . $this->serverKey);
+
+        if ($signature === '' || strlen($signature) !== strlen($expectedSignature)) {
+            return false;
+        }
 
         return hash_equals($expectedSignature, $signature);
     }
@@ -146,6 +153,7 @@ class MidtransGateway implements PaymentGatewayInterface
         ];
 
         $response = Http::withBasicAuth($this->serverKey, '')
+            ->timeout(10)
             ->post("{$irisUrl}/api/v1/payouts", $payload);
 
         if ($response->failed()) {

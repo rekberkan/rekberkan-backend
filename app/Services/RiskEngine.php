@@ -6,6 +6,7 @@ use App\Models\RiskDecision;
 use App\Models\User;
 use App\Models\Escrow;
 use App\Models\UserBehaviorLog;
+use App\Domain\Escrow\Enums\EscrowStatus;
 use Illuminate\Support\Facades\DB;
 
 class RiskEngine
@@ -72,7 +73,7 @@ class RiskEngine
                 COUNT(*) as total_escrows,
                 SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as disputed_count,
                 SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as cancelled_count
-            ', ['DISPUTED', 'CANCELLED'])
+            ', [EscrowStatus::DISPUTED->value, EscrowStatus::CANCELLED->value])
             ->first();
 
         $voucherAbuseCount = UserBehaviorLog::where('tenant_id', $user->tenant_id)

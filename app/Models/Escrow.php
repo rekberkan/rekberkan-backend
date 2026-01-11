@@ -65,7 +65,7 @@ final class Escrow extends Model
 
     protected $attributes = [
         'currency' => 'IDR',
-        'status' => EscrowStatus::CREATED,
+        'status' => EscrowStatus::PENDING_PAYMENT,
     ];
 
     public static function boot(): void
@@ -169,7 +169,7 @@ final class Escrow extends Model
         if (!$this->sla_auto_refund_at) {
             return false;
         }
-        if ($this->status !== EscrowStatus::CREATED) {
+        if ($this->status !== EscrowStatus::PENDING_PAYMENT) {
             return false;
         }
 

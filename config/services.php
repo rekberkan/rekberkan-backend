@@ -16,6 +16,7 @@ return [
         'is_production' => env('MIDTRANS_IS_PRODUCTION', false),
         'sanitized' => env('MIDTRANS_SANITIZED', true),
         '3ds' => env('MIDTRANS_3DS', true),
+        'ip_whitelist' => array_filter(explode(',', (string) env('MIDTRANS_IP_WHITELIST', ''))),
     ],
 
     'xendit' => [

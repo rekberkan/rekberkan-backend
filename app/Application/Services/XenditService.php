@@ -149,8 +149,16 @@ final class XenditService
      */
     public function verifyWebhookSignature(string $rawPayload, string $signature): bool
     {
+        if ($signature === '') {
+            return false;
+        }
+
         // Calculate expected signature from raw payload
         $expectedSignature = hash_hmac('sha256', $rawPayload, $this->callbackToken);
+
+        if (strlen($signature) !== strlen($expectedSignature)) {
+            return false;
+        }
         
         // Constant-time comparison to prevent timing attacks
         return hash_equals($expectedSignature, $signature);
@@ -303,6 +311,7 @@ final class XenditService
     private function createVirtualAccount(Deposit $deposit): array
     {
         $response = Http::withBasicAuth($this->secretKey, '')
+            ->timeout(10)
             ->post($this->baseUrl . '/callback_virtual_accounts', [
                 'external_id' => $deposit->id,
                 'bank_code' => 'BNI', // Default, should be configurable
@@ -318,6 +327,7 @@ final class XenditService
     private function createEWallet(Deposit $deposit): array
     {
         $response = Http::withBasicAuth($this->secretKey, '')
+            ->timeout(10)
             ->post($this->baseUrl . '/ewallets/charges', [
                 'reference_id' => $deposit->id,
                 'currency' => 'IDR',
@@ -335,6 +345,7 @@ final class XenditService
     private function createQRIS(Deposit $deposit): array
     {
         $response = Http::withBasicAuth($this->secretKey, '')
+            ->timeout(10)
             ->post($this->baseUrl . '/qr_codes', [
                 'external_id' => $deposit->id,
                 'type' => 'DYNAMIC',
@@ -348,6 +359,7 @@ final class XenditService
     private function createDisbursement(Withdrawal $withdrawal): array
     {
         $response = Http::withBasicAuth($this->secretKey, '')
+            ->timeout(10)
             ->post($this->baseUrl . '/disbursements', [
                 'external_id' => $withdrawal->id,
                 'amount' => $withdrawal->amount,

@@ -83,10 +83,12 @@ Route::prefix('v1')->group(function () {
         Route::post('notifications/read-all', [NotificationController::class, 'markAllAsRead']);
         Route::delete('notifications/{id}', [NotificationController::class, 'destroy']);
 
-        Route::get('chats', [ChatController::class, 'index']);
-        Route::get('chats/{chatId}', [ChatController::class, 'show']);
-        Route::post('chats/{chatId}/messages', [ChatController::class, 'sendMessage']);
-        Route::post('chats/{chatId}/read', [ChatController::class, 'markAsRead']);
+        Route::middleware(['throttle:chat'])->group(function () {
+            Route::get('chats', [ChatController::class, 'index']);
+            Route::get('chats/{chatId}', [ChatController::class, 'show']);
+            Route::post('chats/{chatId}/messages', [ChatController::class, 'sendMessage']);
+            Route::post('chats/{chatId}/read', [ChatController::class, 'markAsRead']);
+        });
 
         Route::get('memberships', [MembershipController::class, 'index']);
         Route::get('memberships/tiers', [MembershipController::class, 'tiers']);

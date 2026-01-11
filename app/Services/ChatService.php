@@ -7,10 +7,13 @@ use App\Models\Escrow;
 use App\Models\User;
 use App\Models\Admin;
 use App\Events\ChatMessageSent;
+use App\Domain\Escrow\Enums\EscrowStatus;
 use Illuminate\Support\Facades\DB;
 
 class ChatService
 {
+    private const MAX_PER_PAGE = 100;
+    private const MAX_MESSAGE_LENGTH = 1000;
     public function __construct(
         protected AuditService $auditService
     ) {}
@@ -20,23 +23,24 @@ class ChatService
         User|Admin $sender,
         string $body
     ): ChatMessage {
-        if (strlen($body) > 5000) {
-            throw new \Exception('Message body exceeds maximum length of 5000 characters');
+        $sanitizedBody = trim(strip_tags($body));
+        if ($sanitizedBody === '') {
+            throw new \Exception('Message body cannot be empty');
         }
 
-        if (trim($body) === '') {
-            throw new \Exception('Message body cannot be empty');
+        if (mb_strlen($sanitizedBody) > self::MAX_MESSAGE_LENGTH) {
+            throw new \Exception('Message body exceeds maximum length');
         }
 
         $this->validateParticipant($escrow, $sender);
 
-        return DB::transaction(function () use ($escrow, $sender, $body) {
+        return DB::transaction(function () use ($escrow, $sender, $sanitizedBody) {
             $message = ChatMessage::create([
                 'tenant_id' => $escrow->tenant_id,
                 'escrow_id' => $escrow->id,
                 'sender_type' => get_class($sender),
                 'sender_id' => $sender->id,
-                'body' => $body,
+                'body' => $sanitizedBody,
             ]);
 
             $this->auditService->log([
@@ -47,7 +51,7 @@ class ChatService
                 'actor_type' => get_class($sender),
                 'metadata' => [
                     'escrow_id' => $escrow->id,
-                    'message_length' => strlen($body),
+                    'message_length' => mb_strlen($sanitizedBody),
                 ],
             ]);
 
@@ -60,7 +64,7 @@ class ChatService
     protected function validateParticipant(Escrow $escrow, User|Admin $sender): void
     {
         if ($sender instanceof Admin) {
-            if ($escrow->status !== 'DISPUTED') {
+            if ($this->resolveStatus($escrow) !== EscrowStatus::DISPUTED) {
                 throw new \Exception('Admin can only join chat for disputed escrows');
             }
             return;
@@ -74,7 +78,7 @@ class ChatService
     public function canAccessChat(Escrow $escrow, User|Admin $accessor): bool
     {
         if ($accessor instanceof Admin) {
-            return $escrow->status === 'DISPUTED';
+            return $this->resolveStatus($escrow) === EscrowStatus::DISPUTED;
         }
 
         return $accessor->id === $escrow->buyer_id || $accessor->id === $escrow->seller_id;
@@ -110,7 +114,7 @@ class ChatService
             throw new \Exception('Unauthorized');
         }
 
-        return $this->getMessages($escrow, $page, $perPage);
+        return $this->getMessages($escrow, $page, $this->clampPerPage($perPage));
     }
 
     public function markAsRead(Escrow $escrow, User|Admin $accessor): void
@@ -122,6 +126,8 @@ class ChatService
 
     public function getMessages(Escrow $escrow, int $page = 1, int $perPage = 50): array
     {
+        $perPage = $this->clampPerPage($perPage);
+
         $messages = ChatMessage::where('escrow_id', $escrow->id)
             ->orderBy('created_at', 'desc')
             ->paginate($perPage, ['*'], 'page', $page);
@@ -135,5 +141,23 @@ class ChatService
                 'total' => $messages->total(),
             ],
         ];
+    }
+
+    private function resolveStatus(Escrow $escrow): EscrowStatus
+    {
+        if ($escrow->status instanceof EscrowStatus) {
+            return $escrow->status;
+        }
+
+        return EscrowStatus::from((string) $escrow->status);
+    }
+
+    private function clampPerPage(int $perPage): int
+    {
+        if ($perPage <= 0) {
+            return 50;
+        }
+
+        return min($perPage, self::MAX_PER_PAGE);
     }
 }

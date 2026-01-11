@@ -21,12 +21,28 @@ class VerifyMidtransWebhook
         $statusCode = $request->input('status_code');
         $grossAmount = $request->input('gross_amount');
         $receivedSignature = $request->input('signature_key');
+        $whitelist = config('services.midtrans.ip_whitelist', []);
+
+        if (is_array($whitelist) && !empty($whitelist) && !in_array($request->ip(), $whitelist, true)) {
+            Log::warning('Midtrans webhook from unauthorized IP', [
+                'ip' => $request->ip(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized IP address',
+            ], 403);
+        }
 
         // Calculate expected signature
         $expectedSignature = hash('sha512', $orderId . $statusCode . $grossAmount . $serverKey);
 
         // Verify signature using constant-time comparison
-        if (!hash_equals($expectedSignature, $receivedSignature)) {
+        if (
+            empty($receivedSignature)
+            || strlen($receivedSignature) !== strlen($expectedSignature)
+            || !hash_equals($expectedSignature, $receivedSignature)
+        ) {
             Log::warning('Invalid Midtrans webhook signature', [
                 'ip' => $request->ip(),
                 'order_id' => $orderId,

@@ -70,9 +70,11 @@ class VoucherService
             ->get();
     }
 
-    public function validateVoucher(string $voucherCode, int $userId, float $amount): array
+    public function validateVoucher(string $voucherCode, int $tenantId, int $userId, float $amount): array
     {
-        $voucher = Voucher::where('code', $voucherCode)->first();
+        $voucher = Voucher::where('tenant_id', $tenantId)
+            ->where('code', $voucherCode)
+            ->first();
 
         if (!$voucher) {
             return [

@@ -31,6 +31,11 @@ return [
         'decay_minutes' => 60,
     ],
 
+    'chat' => [
+        'max_attempts' => env('RATE_LIMIT_CHAT', 120),
+        'decay_minutes' => 60,
+    ],
+
     'admin' => [
         'max_attempts' => env('RATE_LIMIT_ADMIN', 100),
         'decay_minutes' => 60,

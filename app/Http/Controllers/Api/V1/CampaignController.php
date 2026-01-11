@@ -21,9 +21,9 @@ class CampaignController extends Controller
     public function index(Request $request)
     {
         try {
-            $tenantId = $request->attributes->get('tenant_id');
+            $tenantId = $this->resolveTenantId($request);
             $campaigns = $this->campaignService->getActiveCampaigns(
-                $tenantId ? (int) $tenantId : (int) $request->header('X-Tenant-ID')
+                $tenantId
             );
 
             return response()->json([
@@ -122,5 +122,22 @@ class CampaignController extends Controller
                 'message' => 'Failed to fetch participations',
             ], 500);
         }
+    }
+
+    private function resolveTenantId(Request $request): int
+    {
+        $tenantId = $request->attributes->get('tenant_id') ?? $request->user()?->tenant_id;
+
+        if (!$tenantId || !is_numeric($tenantId)) {
+            abort(400, 'Tenant context is required');
+        }
+
+        $tenantId = (int) $tenantId;
+
+        if ($request->user()?->tenant_id && (int) $request->user()->tenant_id !== $tenantId) {
+            abort(403, 'Access denied to this tenant');
+        }
+
+        return $tenantId;
     }
 }
