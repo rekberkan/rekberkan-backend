@@ -1,0 +1,145 @@
+name: PR Quality Checks
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - '**.php'
+      - 'composer.json'
+      - 'composer.lock'
+      - '.github/workflows/**'
+
+jobs:
+  code-quality:
+    name: Code Quality
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo, pgsql, redis, bcmath, pcntl, zip
+          coverage: none
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v3
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Run Laravel Pint
+        run: ./vendor/bin/pint --test
+
+      - name: Run PHPStan
+        run: ./vendor/bin/phpstan analyse --memory-limit=2G
+
+      - name: Security audit
+        run: composer audit
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: rekberkan_test
+          POSTGRES_USER: rekberkan
+          POSTGRES_PASSWORD: secret
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo, pgsql, redis, bcmath, pcntl, zip
+          coverage: xdebug
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v3
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Prepare Laravel application
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Run migrations
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_DATABASE: rekberkan_test
+          DB_USERNAME: rekberkan
+          DB_PASSWORD: secret
+        run: php artisan migrate --force
+
+      - name: Run tests
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_DATABASE: rekberkan_test
+          DB_USERNAME: rekberkan
+          DB_PASSWORD: secret
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+        run: ./vendor/bin/phpunit --coverage-text
+
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: rekberkan-backend:pr-${{ github.event.pull_request.number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

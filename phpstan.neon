@@ -1,0 +1,44 @@
+includes:
+    - ./vendor/larastan/larastan/extension.neon
+
+parameters:
+    level: 8
+    paths:
+        - app
+        - config
+        - database
+        - routes
+        - tests
+    
+    # Exclude generated/vendor code
+    excludePaths:
+        - app/Http/Middleware/Authenticate.php
+        - bootstrap/cache/*
+        - storage/*
+        - vendor/*
+    
+    # Type coverage
+    checkMissingIterableValueType: true
+    checkGenericClassInNonGenericObjectType: true
+    
+    # Strict rules for financial system
+    strictRules:
+        disallowedLooseComparison: true
+        booleansInConditions: true
+        uselessCast: true
+        requireSuperGlobalVariableTypeInPhpDoc: true
+    
+    # Allow Laravel magic
+    checkModelProperties: true
+    checkOctaneCompatibility: true
+    
+    # Ignore common Laravel patterns
+    ignoreErrors:
+        - '#Call to an undefined method Illuminate\\Database\\Eloquent\\Builder#'
+        - '#Call to an undefined method Illuminate\\Database\\Query\\Builder#'
+        - '#Access to an undefined property Illuminate\\Database\\Eloquent\\Model#'
+    
+    # Parallel processing
+    parallel:
+        maximumNumberOfProcesses: 4
+        processTimeout: 300.0

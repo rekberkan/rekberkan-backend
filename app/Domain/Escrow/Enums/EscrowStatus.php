@@ -6,62 +6,51 @@ namespace App\Domain\Escrow\Enums;
 
 enum EscrowStatus: string
 {
-    case CREATED = 'CREATED';
-    case FUNDED = 'FUNDED';
-    case DELIVERED = 'DELIVERED';
-    case RELEASED = 'RELEASED';
-    case REFUNDED = 'REFUNDED';
-    case DISPUTED = 'DISPUTED';
-    case CANCELLED = 'CANCELLED';
-    case EXPIRED = 'EXPIRED';
+    case PENDING_PAYMENT = 'pending_payment';
+    case FUNDED = 'funded';
+    case IN_PROGRESS = 'in_progress';
+    case DELIVERED = 'delivered';
+    case DISPUTED = 'disputed';
+    case COMPLETED = 'completed';
+    case REFUNDED = 'refunded';
+    case CANCELLED = 'cancelled';
 
-    public function canTransitionTo(self $newStatus): bool
+    public function canTransitionTo(self $target): bool
     {
-        return match($this) {
-            self::CREATED => in_array($newStatus, [
-                self::FUNDED,
-                self::CANCELLED,
-                self::EXPIRED,
-            ]),
-            self::FUNDED => in_array($newStatus, [
-                self::DELIVERED,
-                self::DISPUTED,
-                self::REFUNDED,
-                self::EXPIRED,
-            ]),
-            self::DELIVERED => in_array($newStatus, [
-                self::RELEASED,
-                self::DISPUTED,
-                self::REFUNDED,
-            ]),
-            self::DISPUTED => in_array($newStatus, [
-                self::RELEASED,
-                self::REFUNDED,
-            ]),
-            // Terminal states cannot transition
-            self::RELEASED,
-            self::REFUNDED,
-            self::CANCELLED,
-            self::EXPIRED => false,
+        return match ($this) {
+            self::PENDING_PAYMENT => in_array($target, [self::FUNDED, self::CANCELLED]),
+            self::FUNDED => in_array($target, [self::IN_PROGRESS, self::REFUNDED, self::CANCELLED]),
+            self::IN_PROGRESS => in_array($target, [self::DELIVERED, self::DISPUTED, self::REFUNDED]),
+            self::DELIVERED => in_array($target, [self::COMPLETED, self::DISPUTED]),
+            self::DISPUTED => in_array($target, [self::COMPLETED, self::REFUNDED]),
+            self::COMPLETED => false,
+            self::REFUNDED => false,
+            self::CANCELLED => false,
         };
     }
 
-    public function isTerminal(): bool
+    public function isFinal(): bool
     {
-        return in_array($this, [
-            self::RELEASED,
-            self::REFUNDED,
-            self::CANCELLED,
-            self::EXPIRED,
-        ]);
+        return in_array($this, [self::COMPLETED, self::REFUNDED, self::CANCELLED]);
     }
 
-    public function isFundsLocked(): bool
+    public function requiresPayment(): bool
     {
-        return in_array($this, [
-            self::FUNDED,
-            self::DELIVERED,
-            self::DISPUTED,
-        ]);
+        return $this === self::PENDING_PAYMENT;
+    }
+
+    public function canDispute(): bool
+    {
+        return in_array($this, [self::IN_PROGRESS, self::DELIVERED]);
+    }
+
+    public function canRelease(): bool
+    {
+        return in_array($this, [self::DELIVERED, self::DISPUTED]);
+    }
+
+    public function canRefund(): bool
+    {
+        return in_array($this, [self::FUNDED, self::IN_PROGRESS, self::DISPUTED]);
     }
 }
