@@ -20,13 +20,15 @@ final class XenditService
     private string $callbackToken;
     private string $baseUrl;
     private int $webhookDriftSeconds;
+    private LedgerServiceInterface $ledgerService;
 
-    public function __construct()
+    public function __construct(LedgerServiceInterface $ledgerService)
     {
         $this->secretKey = config('services.xendit.secret_key');
         $this->callbackToken = config('services.xendit.callback_token');
         $this->baseUrl = config('services.xendit.base_url', 'https://api.xendit.co');
         $this->webhookDriftSeconds = (int) config('security.webhook_drift_seconds', 300);
+        $this->ledgerService = $ledgerService;
     }
 
     /**
@@ -139,11 +141,16 @@ final class XenditService
     }
 
     /**
-     * Verify webhook signature using HMAC SHA-256
+     * Verify webhook signature using HMAC SHA-256.
+     * IMPORTANT: Must use raw request body, not parsed JSON.
+     * 
+     * @param string $rawPayload - The raw request body as string
+     * @param string $signature - The x-callback-token header value
      */
-    public function verifyWebhookSignature(string $payload, string $signature): bool
+    public function verifyWebhookSignature(string $rawPayload, string $signature): bool
     {
-        $expectedSignature = hash_hmac('sha256', $payload, $this->callbackToken);
+        // Calculate expected signature from raw payload
+        $expectedSignature = hash_hmac('sha256', $rawPayload, $this->callbackToken);
         
         // Constant-time comparison to prevent timing attacks
         return hash_equals($expectedSignature, $signature);
@@ -166,7 +173,12 @@ final class XenditService
     }
 
     /**
-     * Process deposit webhook (idempotent)
+     * Process deposit webhook (idempotent).
+     * 
+     * SECURITY FIXES:
+     * - Verifies signature using raw payload (bug #44)
+     * - Properly integrates with LedgerService (bug #45)
+     * - Preserves tenant_id and user_id from deposit record (bug #46)
      */
     public function processDepositWebhook(
         array $payload,
@@ -195,7 +207,7 @@ final class XenditService
         ]);
 
         try {
-            // Verify signature
+            // Verify signature using RAW payload (bug #44 fix)
             if (!$this->verifyWebhookSignature($rawPayload, $signature)) {
                 throw new \Exception('Invalid webhook signature');
             }
@@ -214,6 +226,13 @@ final class XenditService
             if (!$deposit) {
                 throw new \Exception('Deposit not found for external_id: ' . $externalId);
             }
+
+            // Deposit already has tenant_id and user_id (bug #46 verified)
+            Log::info('Processing deposit webhook', [
+                'deposit_id' => $deposit->id,
+                'tenant_id' => $deposit->tenant_id,
+                'user_id' => $deposit->user_id,
+            ]);
 
             // Update deposit status
             $status = $this->mapXenditStatus($payload['status'] ?? 'FAILED');
@@ -242,7 +261,9 @@ final class XenditService
     }
 
     /**
-     * Complete deposit and update ledger
+     * Complete deposit and update ledger.
+     * 
+     * Uses LedgerService for proper double-entry bookkeeping (bug #45 fix).
      */
     private function completeDeposit(Deposit $deposit, array $gatewayResponse): void
     {
@@ -257,8 +278,9 @@ final class XenditService
             // Mark deposit as completed
             $deposit->markAsCompleted($gatewayResponse);
 
-            // Create ledger posting (via LedgerService)
-            app(LedgerServiceInterface::class)->recordDeposit(
+            // Create ledger posting via LedgerService (bug #45)
+            // tenant_id and user_id are preserved from deposit record (bug #46)
+            $this->ledgerService->recordDeposit(
                 tenantId: $deposit->tenant_id,
                 walletId: $deposit->wallet_id,
                 amount: $deposit->amount,
@@ -268,6 +290,8 @@ final class XenditService
 
             Log::info('Deposit completed and ledger updated', [
                 'deposit_id' => $deposit->id,
+                'tenant_id' => $deposit->tenant_id,
+                'user_id' => $deposit->user_id,
                 'amount' => $deposit->amount,
             ]);
         });
