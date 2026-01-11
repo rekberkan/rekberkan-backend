@@ -112,6 +112,8 @@ class EscrowController extends Controller
 
     /**
      * List user's escrows with tenant scoping
+     * 
+     * SECURITY FIX: Bug #5 - Add tenant_id filtering to prevent cross-tenant access
      */
     public function index(Request $request): JsonResponse
     {
@@ -121,13 +123,15 @@ class EscrowController extends Controller
 
             $this->validateUserTenant($tenantId);
 
-            $escrows = Escrow::where(function ($query) use ($user) {
-                $query->where('buyer_id', $user->id)
-                    ->orWhere('seller_id', $user->id);
-            })
-            ->with(['buyer', 'seller'])
-            ->orderBy('created_at', 'desc')
-            ->paginate(20);
+            // SECURITY FIX: Add tenant_id filter to prevent cross-tenant data leakage
+            $escrows = Escrow::where('tenant_id', $tenantId)
+                ->where(function ($query) use ($user) {
+                    $query->where('buyer_id', $user->id)
+                        ->orWhere('seller_id', $user->id);
+                })
+                ->with(['buyer', 'seller'])
+                ->orderBy('created_at', 'desc')
+                ->paginate(20);
 
             return response()->json([
                 'data' => $escrows,
