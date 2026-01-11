@@ -12,7 +12,7 @@ return new class extends Migration
         Schema::create('disputes', function (Blueprint $table) {
             $table->id();
             $table->foreignId('tenant_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('escrow_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('escrow_id')->constrained()->cascadeOnDelete();
             $table->foreignId('opened_by_user_id')->constrained('users')->cascadeOnDelete();
             $table->enum('status', ['OPEN', 'INVESTIGATING', 'RESOLVED', 'CLOSED'])->default('OPEN');
             $table->string('reason_code', 50);

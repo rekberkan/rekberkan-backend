@@ -38,6 +38,7 @@ return new class extends Migration
             RETURNS TRIGGER AS $$
             BEGIN
                 RAISE EXCEPTION 'Ledger lines are immutable and cannot be modified or deleted';
+                RETURN NULL;
             END;
             $$ LANGUAGE plpgsql;
         ");
