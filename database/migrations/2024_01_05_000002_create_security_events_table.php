@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Throwable;
 
 return new class extends Migration
 {
@@ -29,10 +31,22 @@ return new class extends Migration
             $table->index(['is_suspicious', 'severity']);
         });
 
-        // Partition by month for performance
-        DB::statement("
-            SELECT create_hypertable('security_events', 'created_at', if_not_exists => TRUE)
-        ");
+        // Partition by month for performance (TimescaleDB)
+        $extensionExists = DB::table('pg_extension')
+            ->where('extname', 'timescaledb')
+            ->exists();
+
+        if (! $extensionExists) {
+            return;
+        }
+
+        try {
+            DB::statement("
+                SELECT create_hypertable('security_events', 'created_at', if_not_exists => TRUE)
+            ");
+        } catch (Throwable $exception) {
+            // Skip hypertable creation if TimescaleDB is unavailable or restricted.
+        }
     }
 
     public function down(): void
