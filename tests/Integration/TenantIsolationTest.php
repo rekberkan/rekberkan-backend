@@ -16,7 +16,6 @@ class TenantIsolationTest extends TestCase
     {
         // Create two tenants
         $tenant1Id = DB::table('tenants')->insertGetId([
-            'id' => '11111111-1111-1111-1111-111111111111',
             'name' => 'Tenant 1',
             'subdomain' => 'tenant1',
             'is_active' => true,
@@ -25,7 +24,6 @@ class TenantIsolationTest extends TestCase
         ]);
 
         $tenant2Id = DB::table('tenants')->insertGetId([
-            'id' => '22222222-2222-2222-2222-222222222222',
             'name' => 'Tenant 2',
             'subdomain' => 'tenant2',
             'is_active' => true,
@@ -35,21 +33,19 @@ class TenantIsolationTest extends TestCase
 
         // Create users for each tenant
         $user1Id = DB::table('users')->insertGetId([
-            'id' => '11111111-1111-1111-1111-111111111112',
             'tenant_id' => $tenant1Id,
             'email' => 'user1@tenant1.com',
             'password' => bcrypt('password'),
-            'is_active' => true,
+            'name' => 'User 1',
             'created_at' => now(),
             'updated_at' => now(),
         ]);
 
         $user2Id = DB::table('users')->insertGetId([
-            'id' => '22222222-2222-2222-2222-222222222223',
             'tenant_id' => $tenant2Id,
             'email' => 'user2@tenant2.com',
             'password' => bcrypt('password'),
-            'is_active' => true,
+            'name' => 'User 2',
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -75,11 +71,10 @@ class TenantIsolationTest extends TestCase
         
         $this->expectException(\Exception::class);
         DB::table('users')->insert([
-            'id' => '33333333-3333-3333-3333-333333333333',
             'tenant_id' => $tenant2Id, // Wrong tenant!
             'email' => 'user3@tenant2.com',
             'password' => bcrypt('password'),
-            'is_active' => true,
+            'name' => 'User 3',
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -89,7 +84,6 @@ class TenantIsolationTest extends TestCase
     {
         // Create tenant and user
         $tenantId = DB::table('tenants')->insertGetId([
-            'id' => '11111111-1111-1111-1111-111111111111',
             'name' => 'Tenant 1',
             'subdomain' => 'tenant1',
             'is_active' => true,
@@ -100,11 +94,10 @@ class TenantIsolationTest extends TestCase
         DB::statement("SET app.tenant_id = ?", [$tenantId]);
         
         DB::table('users')->insert([
-            'id' => '11111111-1111-1111-1111-111111111112',
             'tenant_id' => $tenantId,
             'email' => 'user1@tenant1.com',
             'password' => bcrypt('password'),
-            'is_active' => true,
+            'name' => 'User 1',
             'created_at' => now(),
             'updated_at' => now(),
         ]);

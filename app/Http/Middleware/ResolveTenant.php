@@ -45,7 +45,7 @@ class ResolveTenant
     /**
      * Resolve tenant ID from request sources.
      */
-    private function resolveTenantId(Request $request): ?string
+    private function resolveTenantId(Request $request): ?int
     {
         // 1. Try subdomain
         $host = $request->getHost();
@@ -75,17 +75,21 @@ class ResolveTenant
     /**
      * Validate tenant ID format and existence.
      */
-    private function validateAndReturnTenantId(mixed $tenantId): ?string
+    private function validateAndReturnTenantId(mixed $tenantId): ?int
     {
+        if (is_int($tenantId)) {
+            return $tenantId;
+        }
+
         if (!is_string($tenantId)) {
             return null;
         }
 
-        // Validate UUID format
-        if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $tenantId)) {
+        // Validate numeric tenant ID
+        if (!preg_match('/^\d+$/', $tenantId)) {
             return null;
         }
 
-        return $tenantId;
+        return (int) $tenantId;
     }
 }
