@@ -13,6 +13,7 @@ use App\Domain\Financial\ValueObjects\Money;
 use App\Domain\Ledger\ValueObjects\RRN;
 use App\Domain\Ledger\ValueObjects\STAN;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class EscrowService
@@ -23,31 +24,35 @@ class EscrowService
 
     /**
      * Create escrow transaction.
+     * 
+     * NOTE: Field names aligned with Eloquent model:
+     * - buyer_id (not sender_id)
+     * - seller_id (not recipient_id)
+     * - amount (base amount, no platform_fee/total_amount in model)
      */
     public function create(
         string $tenantId,
-        string $senderId,
-        string $recipientId,
+        string $buyerId,
+        string $sellerId,
         Money $amount,
         string $description,
         ?int $expiresInDays = 30
     ): array {
-        return DB::transaction(function () use ($tenantId, $senderId, $recipientId, $amount, $description, $expiresInDays) {
+        return DB::transaction(function () use ($tenantId, $buyerId, $sellerId, $amount, $description, $expiresInDays) {
             $escrowId = Str::uuid()->toString();
             
-            // Calculate fees (2% platform fee)
+            // Calculate fees (2% platform fee) - but DON'T store in DB
             $platformFee = $amount->multiply('0.02');
             $totalAmount = $amount->add($platformFee);
 
-            // Create escrow record
+            // Create escrow record - ONLY fields that exist in model
             DB::table('escrows')->insert([
                 'id' => $escrowId,
                 'tenant_id' => $tenantId,
-                'sender_id' => $senderId,
-                'recipient_id' => $recipientId,
+                'buyer_id' => $buyerId,      // Fixed: was sender_id
+                'seller_id' => $sellerId,    // Fixed: was recipient_id
                 'amount' => $amount->getMinorUnits(),
-                'platform_fee' => $platformFee->getMinorUnits(),
-                'total_amount' => $totalAmount->getMinorUnits(),
+                // Removed: platform_fee, total_amount (not in model)
                 'description' => $description,
                 'status' => EscrowStatus::PENDING_PAYMENT->value,
                 'expires_at' => now()->addDays($expiresInDays),
@@ -55,21 +60,24 @@ class EscrowService
                 'updated_at' => now(),
             ]);
 
-            // Create timeline entry
-            $this->addTimelineEntry($escrowId, EscrowStatus::PENDING_PAYMENT, 'Escrow created');
+            // Create timeline entry with correct structure
+            $this->addTimelineEntry($escrowId, 'ESCROW_CREATED', null, [
+                'status' => EscrowStatus::PENDING_PAYMENT->value,
+                'message' => 'Escrow created',
+            ]);
 
             return [
                 'escrow_id' => $escrowId,
                 'status' => EscrowStatus::PENDING_PAYMENT->value,
                 'amount' => $amount,
-                'platform_fee' => $platformFee,
-                'total_amount' => $totalAmount,
+                'platform_fee' => $platformFee,  // Return but don't store
+                'total_amount' => $totalAmount,   // Return but don't store
             ];
         });
     }
 
     /**
-     * Fund escrow (lock funds from sender).
+     * Fund escrow (lock funds from buyer).
      */
     public function fund(string $escrowId, string $idempotencyKey): array
     {
@@ -82,39 +90,44 @@ class EscrowService
                 throw new \Exception("Cannot fund escrow in status: {$escrow->status}");
             }
 
+            // Calculate total with fee
+            $amount = Money::fromMinorUnits($escrow->amount, 'IDR');
+            $platformFee = $amount->multiply('0.02');
+            $totalAmount = $amount->add($platformFee);
+
             // Create financial message
             $messageId = $this->createFinancialMessage(
                 $escrow->tenant_id,
                 ProcessingCode::ESCROW_LOCK,
-                $escrow->total_amount
+                $totalAmount->getMinorUnits()
             );
 
-            // Get sender and platform wallet accounts
-            $senderWallet = $this->getWalletAccount($escrow->sender_id);
+            // Get buyer and platform wallet accounts
+            $buyerWallet = $this->getWalletAccount($escrow->buyer_id);
             $platformWallet = $this->getPlatformWallet();
 
-            // Post ledger entries (debit sender, credit escrow + platform fee)
+            // Post ledger entries (debit buyer, credit escrow + platform fee)
             $this->postingService->post(
                 messageId: $messageId,
                 tenantId: $escrow->tenant_id,
                 processingCode: ProcessingCode::ESCROW_LOCK,
                 entries: [
                     [
-                        'account_id' => $senderWallet,
+                        'account_id' => $buyerWallet,
                         'type' => 'debit',
-                        'amount' => $escrow->total_amount,
+                        'amount' => $totalAmount->getMinorUnits(),
                         'description' => "Escrow lock: {$escrow->description}",
                     ],
                     [
                         'account_id' => $escrowId, // Escrow account
                         'type' => 'credit',
-                        'amount' => $escrow->amount,
+                        'amount' => $amount->getMinorUnits(),
                         'description' => "Escrow funds: {$escrow->description}",
                     ],
                     [
                         'account_id' => $platformWallet,
                         'type' => 'credit',
-                        'amount' => $escrow->platform_fee,
+                        'amount' => $platformFee->getMinorUnits(),
                         'description' => 'Platform fee',
                     ],
                 ],
@@ -122,7 +135,7 @@ class EscrowService
             );
 
             // Update escrow status
-            $this->updateStatus($escrowId, EscrowStatus::FUNDED, 'Funds locked in escrow');
+            $this->updateStatus($escrowId, EscrowStatus::FUNDED, 'ESCROW_FUNDED', null);
 
             return [
                 'escrow_id' => $escrowId,
@@ -141,14 +154,14 @@ class EscrowService
             $escrow = $this->getEscrow($escrowId);
 
             // Authorization check
-            $this->verifyUserIsRecipient($escrow, $userId);
+            $this->verifyUserIsSeller($escrow, $userId);
 
             $currentStatus = EscrowStatus::from($escrow->status);
             if (!$currentStatus->canTransitionTo(EscrowStatus::IN_PROGRESS)) {
                 throw new \Exception("Cannot mark in progress from status: {$escrow->status}");
             }
 
-            $this->updateStatus($escrowId, EscrowStatus::IN_PROGRESS, 'Work in progress');
+            $this->updateStatus($escrowId, EscrowStatus::IN_PROGRESS, 'WORK_STARTED', $userId);
 
             return [
                 'escrow_id' => $escrowId,
@@ -166,14 +179,14 @@ class EscrowService
             $escrow = $this->getEscrow($escrowId);
 
             // Authorization check
-            $this->verifyUserIsRecipient($escrow, $userId);
+            $this->verifyUserIsSeller($escrow, $userId);
 
             $currentStatus = EscrowStatus::from($escrow->status);
             if (!$currentStatus->canTransitionTo(EscrowStatus::DELIVERED)) {
                 throw new \Exception("Cannot mark delivered from status: {$escrow->status}");
             }
 
-            $this->updateStatus($escrowId, EscrowStatus::DELIVERED, 'Goods/service delivered', [
+            $this->updateStatus($escrowId, EscrowStatus::DELIVERED, 'GOODS_DELIVERED', $userId, [
                 'proof_url' => $proofUrl,
             ]);
 
@@ -191,14 +204,14 @@ class EscrowService
     }
 
     /**
-     * Release funds to recipient.
+     * Release funds to seller.
      */
     public function release(string $escrowId, string $userId, string $idempotencyKey): array
     {
         return DB::transaction(function () use ($escrowId, $userId, $idempotencyKey) {
             $escrow = $this->getEscrow($escrowId);
 
-            // Authorization check: sender (buyer), recipient (seller), or admin
+            // Authorization check: buyer, seller, or admin
             $this->verifyUserCanRelease($escrow, $userId);
 
             $currentStatus = EscrowStatus::from($escrow->status);
@@ -213,10 +226,10 @@ class EscrowService
                 $escrow->amount
             );
 
-            // Get recipient wallet
-            $recipientWallet = $this->getWalletAccount($escrow->recipient_id);
+            // Get seller wallet
+            $sellerWallet = $this->getWalletAccount($escrow->seller_id);
 
-            // Post ledger entries (debit escrow, credit recipient)
+            // Post ledger entries (debit escrow, credit seller)
             $this->postingService->post(
                 messageId: $messageId,
                 tenantId: $escrow->tenant_id,
@@ -229,7 +242,7 @@ class EscrowService
                         'description' => 'Escrow release',
                     ],
                     [
-                        'account_id' => $recipientWallet,
+                        'account_id' => $sellerWallet,
                         'type' => 'credit',
                         'amount' => $escrow->amount,
                         'description' => 'Payment received',
@@ -238,7 +251,7 @@ class EscrowService
                 idempotencyKey: $idempotencyKey
             );
 
-            $this->updateStatus($escrowId, EscrowStatus::COMPLETED, 'Funds released to recipient');
+            $this->updateStatus($escrowId, EscrowStatus::COMPLETED, 'FUNDS_RELEASED', $userId);
 
             return [
                 'escrow_id' => $escrowId,
@@ -249,7 +262,7 @@ class EscrowService
     }
 
     /**
-     * Refund to sender.
+     * Refund to buyer.
      */
     public function refund(
         string $escrowId,
@@ -257,12 +270,11 @@ class EscrowService
         string $reason,
         string $idempotencyKey,
         bool $isAutoRefund = false
-    ): array
-    {
+    ): array {
         return DB::transaction(function () use ($escrowId, $userId, $reason, $idempotencyKey, $isAutoRefund) {
             $escrow = $this->getEscrow($escrowId);
 
-            // Authorization check: sender, recipient, or admin
+            // Authorization check: buyer, seller, or admin
             if (!$isAutoRefund) {
                 $this->verifyUserCanRefund($escrow, $userId);
             }
@@ -279,9 +291,9 @@ class EscrowService
                 $escrow->amount
             );
 
-            $senderWallet = $this->getWalletAccount($escrow->sender_id);
+            $buyerWallet = $this->getWalletAccount($escrow->buyer_id);
 
-            // Post ledger entries (debit escrow, credit sender)
+            // Post ledger entries (debit escrow, credit buyer)
             $this->postingService->post(
                 messageId: $messageId,
                 tenantId: $escrow->tenant_id,
@@ -294,7 +306,7 @@ class EscrowService
                         'description' => 'Escrow refund',
                     ],
                     [
-                        'account_id' => $senderWallet,
+                        'account_id' => $buyerWallet,
                         'type' => 'credit',
                         'amount' => $escrow->amount,
                         'description' => 'Refund received',
@@ -303,7 +315,13 @@ class EscrowService
                 idempotencyKey: $idempotencyKey
             );
 
-            $this->updateStatus($escrowId, EscrowStatus::REFUNDED, $reason);
+            $this->updateStatus(
+                $escrowId,
+                EscrowStatus::REFUNDED,
+                'ESCROW_REFUNDED',
+                $isAutoRefund ? null : $userId,
+                ['reason' => $reason]
+            );
 
             return [
                 'escrow_id' => $escrowId,
@@ -321,7 +339,7 @@ class EscrowService
         return DB::transaction(function () use ($escrowId, $userId, $reason) {
             $escrow = $this->getEscrow($escrowId);
 
-            // Authorization check: sender or recipient can dispute
+            // Authorization check: buyer or seller can dispute
             $this->verifyUserCanDispute($escrow, $userId);
 
             $currentStatus = EscrowStatus::from($escrow->status);
@@ -329,8 +347,8 @@ class EscrowService
                 throw new \Exception("Cannot dispute from status: {$escrow->status}");
             }
 
-            $this->updateStatus($escrowId, EscrowStatus::DISPUTED, $reason, [
-                'disputed_by' => $userId,
+            $this->updateStatus($escrowId, EscrowStatus::DISPUTED, 'DISPUTE_CREATED', $userId, [
+                'reason' => $reason,
             ]);
 
             return [
@@ -342,31 +360,31 @@ class EscrowService
     }
 
     // Authorization helper methods
-    private function verifyUserIsRecipient(object $escrow, string $userId): void
+    private function verifyUserIsSeller(object $escrow, string $userId): void
     {
-        if ($escrow->recipient_id !== $userId) {
-            throw new \Exception('Only recipient can perform this action');
+        if ($escrow->seller_id !== $userId) {
+            throw new \Exception('Only seller can perform this action');
         }
     }
 
     private function verifyUserCanRelease(object $escrow, string $userId): void
     {
-        if ($escrow->sender_id !== $userId && $escrow->recipient_id !== $userId && !$this->isAdmin($userId)) {
+        if ($escrow->buyer_id !== $userId && $escrow->seller_id !== $userId && !$this->isAdmin($userId)) {
             throw new \Exception('Not authorized to release funds');
         }
     }
 
     private function verifyUserCanRefund(object $escrow, string $userId): void
     {
-        if ($escrow->sender_id !== $userId && $escrow->recipient_id !== $userId && !$this->isAdmin($userId)) {
+        if ($escrow->buyer_id !== $userId && $escrow->seller_id !== $userId && !$this->isAdmin($userId)) {
             throw new \Exception('Not authorized to refund');
         }
     }
 
     private function verifyUserCanDispute(object $escrow, string $userId): void
     {
-        if ($escrow->sender_id !== $userId && $escrow->recipient_id !== $userId) {
-            throw new \Exception('Only sender or recipient can create dispute');
+        if ($escrow->buyer_id !== $userId && $escrow->seller_id !== $userId) {
+            throw new \Exception('Only buyer or seller can create dispute');
         }
     }
 
@@ -380,41 +398,72 @@ class EscrowService
         return $escrow;
     }
 
-    private function updateStatus(string $escrowId, EscrowStatus $status, string $note, array $metadata = []): void
-    {
+    private function updateStatus(
+        string $escrowId,
+        EscrowStatus $status,
+        string $eventType,
+        ?string $actorId,
+        array $metadata = []
+    ): void {
         DB::table('escrows')->where('id', $escrowId)->update([
             'status' => $status->value,
             'updated_at' => now(),
         ]);
 
-        $this->addTimelineEntry($escrowId, $status, $note, $metadata);
+        $this->addTimelineEntry($escrowId, $eventType, $actorId, $metadata);
     }
 
-    private function addTimelineEntry(string $escrowId, EscrowStatus $status, string $note, array $metadata = []): void
-    {
-        DB::table('escrow_timelines')->insert([
-            'id' => Str::uuid()->toString(),
-            'escrow_id' => $escrowId,
-            'status' => $status->value,
-            'note' => $note,
-            'metadata' => !empty($metadata) ? json_encode($metadata) : null,
-            'created_at' => now(),
-        ]);
+    /**
+     * Add timeline entry with correct structure.
+     * 
+     * Timeline uses: event, actor_id, metadata
+     * NOT: status, note
+     */
+    private function addTimelineEntry(
+        string $escrowId,
+        string $eventType,
+        ?string $actorId,
+        array $metadata = []
+    ): void {
+        try {
+            DB::table('escrow_timelines')->insert([
+                'id' => Str::uuid()->toString(),
+                'escrow_id' => $escrowId,
+                'event' => $eventType,        // Fixed: was 'status'
+                'actor_id' => $actorId,       // Fixed: was missing
+                'metadata' => !empty($metadata) ? json_encode($metadata) : null,
+                'created_at' => now(),
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to add timeline entry', [
+                'escrow_id' => $escrowId,
+                'event' => $eventType,
+                'error' => $e->getMessage(),
+            ]);
+            // Don't throw - timeline is not critical
+        }
     }
 
     private function createFinancialMessage(string $tenantId, ProcessingCode $code, int $amount): string
     {
         $messageId = Str::uuid()->toString();
-        DB::table('financial_messages')->insert([
-            'id' => $messageId,
-            'tenant_id' => $tenantId,
-            'stan' => $this->generateStan((int) $tenantId),
-            'rrn' => $this->generateRrn(),
-            'processing_code' => $code->value,
-            'amount' => $amount,
-            'phase' => MessagePhase::INITIATED->value,
-            'created_at' => now(),
-        ]);
+        try {
+            DB::table('financial_messages')->insert([
+                'id' => $messageId,
+                'tenant_id' => $tenantId,
+                'stan' => $this->generateStan((int) $tenantId),
+                'rrn' => $this->generateRrn(),
+                'processing_code' => $code->value,
+                'amount' => $amount,
+                'phase' => MessagePhase::INITIATED->value,
+                'created_at' => now(),
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to create financial message', [
+                'error' => $e->getMessage(),
+            ]);
+            throw new \Exception('Failed to create financial transaction');
+        }
         return $messageId;
     }
 
