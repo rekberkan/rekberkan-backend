@@ -81,15 +81,16 @@ class ResolveTenant
             return $tenantId;
         }
 
-        if (!is_string($tenantId) || $tenantId === '') {
+        if (!is_string($tenantId)) {
             return null;
         }
 
-        // Validate numeric tenant ID
-        if (!ctype_digit($tenantId)) {
+        $normalized = trim($tenantId);
+
+        if ($normalized === '' || !ctype_digit($normalized)) {
             return null;
         }
 
-        return (int) $tenantId;
+        return (int) $normalized;
     }
 }
