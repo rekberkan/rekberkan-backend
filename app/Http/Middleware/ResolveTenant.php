@@ -85,7 +85,8 @@ class ResolveTenant
             return null;
         }
 
-        if (!ctype_digit($tenantId)) {
+        // Validate bigint format
+        if (!preg_match('/^\d+$/', $tenantId)) {
             return null;
         }
 
