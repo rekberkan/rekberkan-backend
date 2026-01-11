@@ -35,14 +35,14 @@ return new class extends Migration
             // Policy: Users can only access their tenant's data
             DB::statement("
                 CREATE POLICY tenant_isolation_policy ON {$table}
-                USING (tenant_id = current_setting('app.tenant_id', TRUE)::uuid)
+                USING (tenant_id = current_setting('app.tenant_id', TRUE)::bigint)
             ");
             
             // Policy: Allow inserts with correct tenant_id
             DB::statement("
                 CREATE POLICY tenant_isolation_insert ON {$table}
                 FOR INSERT
-                WITH CHECK (tenant_id = current_setting('app.tenant_id', TRUE)::uuid)
+                WITH CHECK (tenant_id = current_setting('app.tenant_id', TRUE)::bigint)
             ");
         }
 
@@ -61,7 +61,7 @@ return new class extends Migration
                 EXISTS (
                     SELECT 1 FROM financial_messages
                     WHERE financial_messages.id = posting_batches.financial_message_id
-                    AND financial_messages.tenant_id = current_setting('app.tenant_id', TRUE)::uuid
+                    AND financial_messages.tenant_id = current_setting('app.tenant_id', TRUE)::bigint
                 )
             )
         ");
