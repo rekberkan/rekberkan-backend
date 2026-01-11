@@ -5,33 +5,28 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class UserBehaviorLog extends Model
+class RiskDecision extends Model
 {
     public const UPDATED_AT = null;
 
-    protected $table = 'user_behavior_log';
-
     protected $fillable = [
         'tenant_id',
-        'user_id',
-        'event_type',
-        'metadata',
-        'ip_address',
-        'user_agent',
+        'subject_type',
+        'subject_id',
+        'input_snapshot',
+        'snapshot_hash',
+        'score',
+        'action',
+        'engine_version',
     ];
 
     protected $casts = [
-        'metadata' => 'array',
+        'input_snapshot' => 'array',
         'created_at' => 'datetime',
     ];
 
     public function tenant(): BelongsTo
     {
         return $this->belongsTo(Tenant::class);
-    }
-
-    public function user(): BelongsTo
-    {
-        return $this->belongsTo(User::class);
     }
 }
