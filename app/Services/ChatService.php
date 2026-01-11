@@ -80,6 +80,46 @@ class ChatService
         return $accessor->id === $escrow->buyer_id || $accessor->id === $escrow->seller_id;
     }
 
+    public function getUserChats(int $userId): array
+    {
+        $escrows = Escrow::where(function ($query) use ($userId) {
+            $query->where('buyer_id', $userId)
+                ->orWhere('seller_id', $userId);
+        })
+        ->with(['buyer', 'seller'])
+        ->withCount('chatMessages')
+        ->orderByDesc('updated_at')
+        ->get();
+
+        return $escrows->map(function (Escrow $escrow) {
+            $lastMessage = ChatMessage::where('escrow_id', $escrow->id)
+                ->orderByDesc('created_at')
+                ->first();
+
+            return [
+                'escrow' => $escrow,
+                'last_message' => $lastMessage,
+                'messages_count' => $escrow->chat_messages_count,
+            ];
+        })->all();
+    }
+
+    public function getChatMessages(Escrow $escrow, User|Admin $accessor, int $page = 1, int $perPage = 50): array
+    {
+        if (!$this->canAccessChat($escrow, $accessor)) {
+            throw new \Exception('Unauthorized');
+        }
+
+        return $this->getMessages($escrow, $page, $perPage);
+    }
+
+    public function markAsRead(Escrow $escrow, User|Admin $accessor): void
+    {
+        if (!$this->canAccessChat($escrow, $accessor)) {
+            throw new \Exception('Unauthorized');
+        }
+    }
+
     public function getMessages(Escrow $escrow, int $page = 1, int $perPage = 50): array
     {
         $messages = ChatMessage::where('escrow_id', $escrow->id)

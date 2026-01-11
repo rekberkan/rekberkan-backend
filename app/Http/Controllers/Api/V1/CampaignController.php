@@ -22,7 +22,9 @@ class CampaignController extends Controller
     {
         try {
             $tenantId = $request->attributes->get('tenant_id');
-            $campaigns = $this->campaignService->getActiveCampaigns($tenantId);
+            $campaigns = $this->campaignService->getActiveCampaigns(
+                $tenantId ? (int) $tenantId : (int) $request->header('X-Tenant-ID')
+            );
 
             return response()->json([
                 'success' => true,

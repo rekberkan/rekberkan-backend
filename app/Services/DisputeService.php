@@ -22,6 +22,10 @@ class DisputeService
         ?string $notes = null,
         string $stepUpToken = null
     ): DisputeAction {
+        if (empty($stepUpToken)) {
+            throw new \Exception('Step-up token required');
+        }
+
         $this->stepUpAuthService->verifyAndConsume(
             $stepUpToken,
             'Admin',
@@ -68,6 +72,10 @@ class DisputeService
     ): void {
         if ($action->maker_admin_id === $checkerAdmin->id) {
             throw new \Exception('Checker cannot be the same as maker (four-eyes principle)');
+        }
+
+        if (empty($stepUpToken)) {
+            throw new \Exception('Step-up token required');
         }
 
         $this->stepUpAuthService->verifyAndConsume(

@@ -9,6 +9,7 @@ use App\Models\Withdrawal;
 use App\Models\PaymentWebhookLog;
 use App\Domain\Payment\Enums\PaymentStatus;
 use App\Domain\Payment\Enums\PaymentMethod;
+use App\Domain\Ledger\Contracts\LedgerServiceInterface;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
@@ -167,7 +168,12 @@ final class XenditService
     /**
      * Process deposit webhook (idempotent)
      */
-    public function processDepositWebhook(array $payload, string $signature, string $ipAddress): void
+    public function processDepositWebhook(
+        array $payload,
+        string $signature,
+        string $ipAddress,
+        string $rawPayload
+    ): void
     {
         $webhookId = $payload['id'] ?? null;
         
@@ -190,8 +196,7 @@ final class XenditService
 
         try {
             // Verify signature
-            $payloadJson = json_encode($payload);
-            if (!$this->verifyWebhookSignature($payloadJson, $signature)) {
+            if (!$this->verifyWebhookSignature($rawPayload, $signature)) {
                 throw new \Exception('Invalid webhook signature');
             }
 
@@ -242,6 +247,13 @@ final class XenditService
     private function completeDeposit(Deposit $deposit, array $gatewayResponse): void
     {
         DB::transaction(function () use ($deposit, $gatewayResponse) {
+            if ($deposit->isComplete()) {
+                Log::info('Deposit already completed, skipping ledger update', [
+                    'deposit_id' => $deposit->id,
+                ]);
+                return;
+            }
+
             // Mark deposit as completed
             $deposit->markAsCompleted($gatewayResponse);
 

@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Services\Payment;
 
 use App\Models\Deposit;
+use App\Models\PaymentWebhookLog;
 use App\Services\Security\SecurityEventLogger;
+use App\Domain\Payment\Enums\PaymentStatus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Http\Request;
@@ -39,6 +41,7 @@ class XenditService
         $signature = $request->header('x-callback-token');
         $timestamp = $request->header('x-timestamp');
         $ipAddress = $request->ip();
+        $rawPayload = $request->getContent();
 
         // Step 1: Verify IP whitelist (if enabled)
         if (config('payment.xendit.verify_ip', false)) {
@@ -63,7 +66,7 @@ class XenditService
         }
 
         // Step 3: Verify HMAC signature
-        if (!$this->verifyWebhookSignature($signature, $payload)) {
+        if (!$this->verifyWebhookSignature($signature, $rawPayload)) {
             $this->logSuspiciousWebhook('invalid_signature', $ipAddress, $payload);
             
             return [
@@ -83,8 +86,30 @@ class XenditService
             ];
         }
 
-        // Step 5: Process deposit
-        return $this->processDeposit($payload);
+        $webhookLog = PaymentWebhookLog::create([
+            'webhook_id' => $webhookId,
+            'event_type' => 'deposit',
+            'payload' => $payload,
+            'signature' => $signature,
+            'signature_verified' => true,
+            'ip_address' => $ipAddress,
+        ]);
+
+        try {
+            // Step 5: Process deposit
+            $result = $this->processDeposit($payload);
+
+            if (!($result['success'] ?? false)) {
+                $webhookLog->markAsFailed($result['error'] ?? 'Deposit processing failed');
+            } else {
+                $webhookLog->markAsProcessed();
+            }
+
+            return $result;
+        } catch (\Throwable $e) {
+            $webhookLog->markAsFailed($e->getMessage());
+            throw $e;
+        }
     }
 
     /**
@@ -130,16 +155,14 @@ class XenditService
     /**
      * Verify webhook signature using HMAC-SHA256.
      */
-    private function verifyWebhookSignature(?string $signature, array $payload): bool
+    private function verifyWebhookSignature(?string $signature, string $payload): bool
     {
         if (empty($signature)) {
             return false;
         }
 
         $webhookSecret = config('payment.xendit.webhook_secret');
-        $payloadString = json_encode($payload, JSON_THROW_ON_ERROR);
-        
-        $expectedSignature = hash_hmac('sha256', $payloadString, $webhookSecret);
+        $expectedSignature = hash_hmac('sha256', $payload, $webhookSecret);
         
         return hash_equals($expectedSignature, $signature);
     }
@@ -153,8 +176,8 @@ class XenditService
             return false;
         }
 
-        return DB::table('deposits')
-            ->where('webhook_id', $webhookId)
+        return PaymentWebhookLog::where('webhook_id', $webhookId)
+            ->where('processed', true)
             ->exists();
     }
 
@@ -167,21 +190,25 @@ class XenditService
             DB::beginTransaction();
 
             // Extract deposit data from payload
-            $depositData = [
-                'webhook_id' => $payload['id'],
-                'external_id' => $payload['external_id'] ?? null,
-                'amount' => $payload['amount'] ?? 0,
-                'status' => $payload['status'] ?? 'pending',
-                'payment_method' => $payload['payment_method'] ?? null,
-                'metadata' => json_encode($payload),
-                'processed_at' => now(),
-            ];
+            $externalId = $payload['external_id'] ?? null;
+            $deposit = Deposit::where('gateway_reference', $externalId)->first();
 
-            // Create or update deposit record
-            $deposit = Deposit::updateOrCreate(
-                ['webhook_id' => $depositData['webhook_id']],
-                $depositData
-            );
+            if (!$deposit) {
+                throw new \Exception('Deposit not found for external_id');
+            }
+
+            if ($deposit->isComplete()) {
+                return [
+                    'success' => true,
+                    'deposit_id' => $deposit->id,
+                    'message' => 'Deposit already completed',
+                ];
+            }
+
+            $deposit->update([
+                'gateway_response' => $payload,
+                'status' => $this->mapStatus($payload['status'] ?? null) ?? $deposit->status,
+            ]);
 
             // Log security event
             $this->securityLogger->log(
@@ -239,5 +266,20 @@ class XenditService
             'reason' => $reason,
             'ip' => $ipAddress,
         ]);
+    }
+
+    private function mapStatus(?string $status): ?PaymentStatus
+    {
+        if (!$status) {
+            return null;
+        }
+
+        return match (strtoupper($status)) {
+            'ACTIVE', 'PAID', 'SUCCEEDED', 'COMPLETED' => PaymentStatus::COMPLETED,
+            'PENDING' => PaymentStatus::PROCESSING,
+            'INACTIVE', 'EXPIRED' => PaymentStatus::EXPIRED,
+            'FAILED' => PaymentStatus::FAILED,
+            default => PaymentStatus::FAILED,
+        };
     }
 }

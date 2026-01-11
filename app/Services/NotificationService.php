@@ -33,13 +33,70 @@ class NotificationService
         });
     }
 
-    public function markAsRead(Notification $notification): void
+    public function getUserNotifications(int $userId, int $page = 1, int $perPage = 20): array
     {
+        $notifications = Notification::with('read')
+            ->where('user_id', $userId)
+            ->orderByDesc('created_at')
+            ->paginate($perPage, ['*'], 'page', $page);
+
+        return [
+            'data' => $notifications->items(),
+            'pagination' => [
+                'current_page' => $notifications->currentPage(),
+                'total_pages' => $notifications->lastPage(),
+                'per_page' => $notifications->perPage(),
+                'total' => $notifications->total(),
+            ],
+        ];
+    }
+
+    public function getUnreadCount(int $userId): int
+    {
+        return Notification::where('user_id', $userId)
+            ->whereDoesntHave('read')
+            ->count();
+    }
+
+    public function markAsRead(int $notificationId, int $userId): void
+    {
+        $notification = Notification::where('id', $notificationId)
+            ->where('user_id', $userId)
+            ->firstOrFail();
+
         if (!$notification->isRead()) {
             NotificationRead::create([
                 'notification_id' => $notification->id,
             ]);
         }
+    }
+
+    public function markAllAsRead(int $userId): void
+    {
+        $notifications = Notification::where('user_id', $userId)
+            ->whereDoesntHave('read')
+            ->pluck('id');
+
+        $rows = $notifications->map(fn ($id) => [
+            'notification_id' => $id,
+            'read_at' => now(),
+        ])->all();
+
+        if ($rows) {
+            NotificationRead::insert($rows);
+        }
+    }
+
+    public function delete(int $notificationId, int $userId): void
+    {
+        DB::transaction(function () use ($notificationId, $userId) {
+            $notification = Notification::where('id', $notificationId)
+                ->where('user_id', $userId)
+                ->firstOrFail();
+
+            NotificationRead::where('notification_id', $notification->id)->delete();
+            $notification->delete();
+        });
     }
 
     public function notifyEscrowStatusChange(int $tenantId, int $userId, int $escrowId, string $newStatus): void

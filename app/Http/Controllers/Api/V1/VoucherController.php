@@ -21,7 +21,7 @@ class VoucherController extends Controller
     public function index(Request $request)
     {
         try {
-            $tenantId = $request->attributes->get('tenant_id');
+            $tenantId = (int) ($request->attributes->get('tenant_id') ?? $request->header('X-Tenant-ID'));
             $vouchers = $this->voucherService->getAvailableVouchers($tenantId);
 
             return response()->json([
@@ -49,7 +49,7 @@ class VoucherController extends Controller
 
         try {
             $userId = $request->user()->id;
-            $tenantId = $request->attributes->get('tenant_id');
+            $tenantId = (int) ($request->attributes->get('tenant_id') ?? $request->header('X-Tenant-ID'));
 
             $result = $this->voucherService->applyVoucher(
                 $validated['code'],

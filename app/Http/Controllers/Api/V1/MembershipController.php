@@ -84,7 +84,11 @@ class MembershipController extends Controller
 
         try {
             $userId = $request->user()->id;
-            $tenantId = $request->attributes->get('tenant_id');
+            $tenantId = (int) ($request->attributes->get('tenant_id') ?? $request->header('X-Tenant-ID'));
+
+            if (!$tenantId) {
+                throw new \Exception('Tenant ID is required');
+            }
 
             $membership = $this->membershipService->subscribe(
                 $userId,
@@ -145,11 +149,7 @@ class MembershipController extends Controller
             $tier = $membership ? $membership->tier : 'free';
             $benefits = \App\Models\Membership::getTierConfig($tier)['benefits'];
 
-            // TODO: Get actual usage stats
-            $usage = [
-                'daily_transactions_used' => 0,
-                'total_fee_saved' => 0,
-            ];
+            $usage = $this->membershipService->getUsageStats($userId, $tier, $membership);
 
             return response()->json([
                 'success' => true,

@@ -26,11 +26,10 @@ final class AuthController extends Controller
     {
         $user = $this->authService->register(
             tenantId: (int) $request->header('X-Tenant-ID'),
-            email: $request->email,
-            password: $request->password,
-            name: $request->name,
-            phone: $request->phone,
-            idempotencyKey: $request->header('X-Idempotency-Key') ?? "register-{$request->email}-" . time()
+            data: array_merge($request->validated(), [
+                'idempotency_key' => $request->header('X-Idempotency-Key')
+                    ?? "register-{$request->email}-" . time(),
+            ])
         );
 
         return response()->json([
@@ -44,12 +43,9 @@ final class AuthController extends Controller
     public function login(LoginRequest $request): JsonResponse
     {
         $result = $this->authService->login(
-            tenantId: (int) $request->header('X-Tenant-ID'),
             email: $request->email,
             password: $request->password,
-            deviceFingerprint: $request->device_fingerprint,
-            ipAddress: $request->ip(),
-            userAgent: $request->userAgent()
+            request: $request
         );
 
         return response()->json([
@@ -57,7 +53,7 @@ final class AuthController extends Controller
                 'user' => new AuthResource($result['user']),
                 'access_token' => $result['access_token'],
                 'refresh_token' => $result['refresh_token'],
-                'expires_in' => config('security.jwt.ttl') * 60,
+                'expires_in' => $result['expires_in'],
             ],
         ]);
     }
@@ -67,15 +63,16 @@ final class AuthController extends Controller
      */
     public function refresh(RefreshTokenRequest $request): JsonResponse
     {
-        $result = $this->authService->refreshToken(
-            refreshToken: $request->refresh_token
+        $result = $this->authService->refresh(
+            refreshTokenId: $request->refresh_token,
+            request: $request
         );
 
         return response()->json([
             'data' => [
                 'access_token' => $result['access_token'],
                 'refresh_token' => $result['refresh_token'],
-                'expires_in' => config('security.jwt.ttl') * 60,
+                'expires_in' => $result['expires_in'],
             ],
         ]);
     }
@@ -85,11 +82,9 @@ final class AuthController extends Controller
      */
     public function logout(Request $request): JsonResponse
     {
-        $user = $request->user();
-        
         $this->authService->logout(
-            userId: $user->id,
-            deviceFingerprint: $request->device_fingerprint ?? ''
+            user: $request->user(),
+            refreshTokenId: $request->input('refresh_token')
         );
 
         return response()->json([

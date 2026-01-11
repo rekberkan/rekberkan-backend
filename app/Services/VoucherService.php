@@ -15,6 +15,92 @@ class VoucherService
         protected AuditService $auditService
     ) {}
 
+    public function getAvailableVouchers(int $tenantId)
+    {
+        $now = now();
+
+        return Voucher::where('tenant_id', $tenantId)
+            ->where('status', 'ACTIVE')
+            ->where(function ($query) use ($now) {
+                $query->whereNull('valid_from')
+                    ->orWhere('valid_from', '<=', $now);
+            })
+            ->where(function ($query) use ($now) {
+                $query->whereNull('valid_until')
+                    ->orWhere('valid_until', '>=', $now);
+            })
+            ->orderByDesc('created_at')
+            ->get();
+    }
+
+    public function applyVoucher(
+        string $voucherCode,
+        int $userId,
+        int $tenantId,
+        string $transactionType,
+        float $amount
+    ): array {
+        $voucher = Voucher::where('tenant_id', $tenantId)
+            ->where('code', $voucherCode)
+            ->firstOrFail();
+
+        if (!$voucher->isValid()) {
+            throw new \Exception('Voucher is not valid');
+        }
+
+        if (!$voucher->canBeUsedByUser($userId)) {
+            throw new \Exception('Voucher usage limit exceeded for this user');
+        }
+
+        $discount = $this->calculateDiscount($voucher, $amount);
+
+        return [
+            'voucher_id' => $voucher->id,
+            'discount' => $discount,
+            'final_amount' => max(0, $amount - $discount),
+            'transaction_type' => $transactionType,
+        ];
+    }
+
+    public function getUserVouchers(int $userId)
+    {
+        return VoucherRedemption::with('voucher')
+            ->where('user_id', $userId)
+            ->orderByDesc('created_at')
+            ->get();
+    }
+
+    public function validateVoucher(string $voucherCode, int $userId, float $amount): array
+    {
+        $voucher = Voucher::where('code', $voucherCode)->first();
+
+        if (!$voucher) {
+            return [
+                'valid' => false,
+                'message' => 'Voucher not found',
+            ];
+        }
+
+        if (!$voucher->isValid()) {
+            return [
+                'valid' => false,
+                'message' => 'Voucher is not valid',
+            ];
+        }
+
+        if (!$voucher->canBeUsedByUser($userId)) {
+            return [
+                'valid' => false,
+                'message' => 'Voucher usage limit exceeded for this user',
+            ];
+        }
+
+        return [
+            'valid' => true,
+            'discount' => $this->calculateDiscount($voucher, $amount),
+        ];
+    }
+
     public function redeemVoucher(
         string $voucherCode,
         User $user,

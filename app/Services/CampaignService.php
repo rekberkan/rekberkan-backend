@@ -15,6 +15,70 @@ class CampaignService
         protected AuditService $auditService
     ) {}
 
+    public function getActiveCampaigns(?int $tenantId = null)
+    {
+        $now = now();
+
+        $query = Campaign::query()
+            ->where('status', 'ACTIVE')
+            ->where(function ($builder) use ($now) {
+                $builder->whereNull('starts_at')
+                    ->orWhere('starts_at', '<=', $now);
+            })
+            ->where(function ($builder) use ($now) {
+                $builder->whereNull('ends_at')
+                    ->orWhere('ends_at', '>=', $now);
+            })
+            ->where(function ($builder) {
+                $builder->whereNull('budget_total')
+                    ->orWhereColumn('budget_used', '<', 'budget_total');
+            })
+            ->where(function ($builder) {
+                $builder->whereNull('max_participants')
+                    ->orWhereColumn('current_participants', '<', 'max_participants');
+            });
+
+        if ($tenantId) {
+            $query->where('tenant_id', $tenantId);
+        }
+
+        return $query->orderByDesc('starts_at')->get();
+    }
+
+    public function getCampaignById(string $campaignId): ?Campaign
+    {
+        return Campaign::find($campaignId);
+    }
+
+    public function participate(string $campaignId, int $userId, ?string $walletAddress = null): CampaignParticipation
+    {
+        $campaign = Campaign::findOrFail($campaignId);
+        $user = User::findOrFail($userId);
+
+        $participation = $this->enrollUser($campaign, $user);
+
+        if ($walletAddress) {
+            $this->auditService->log([
+                'event_type' => 'CAMPAIGN_WALLET_ADDRESS',
+                'subject_type' => CampaignParticipation::class,
+                'subject_id' => $participation->id,
+                'metadata' => [
+                    'wallet_address' => $walletAddress,
+                    'user_id' => $userId,
+                ],
+            ]);
+        }
+
+        return $participation;
+    }
+
+    public function getUserParticipations(int $userId)
+    {
+        return CampaignParticipation::where('user_id', $userId)
+            ->orderByDesc('created_at')
+            ->get();
+    }
+
     public function enrollUser(
         Campaign $campaign,
         User $user,
