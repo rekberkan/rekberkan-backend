@@ -12,7 +12,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('tenant_id')->constrained()->onDelete('cascade');
             $table->foreignUuid('escrow_id')->constrained()->onDelete('cascade');
-            $table->foreignId('sender_id')->constrained('users')->onDelete('cascade');
+            $table->morphs('sender');
             $table->text('message');
             $table->json('attachments')->nullable();
             $table->timestamp('read_at')->nullable();
@@ -20,7 +20,6 @@ return new class extends Migration
 
             $table->index(['tenant_id', 'escrow_id', 'created_at']);
             $table->index(['escrow_id', 'created_at']);
-            $table->index('sender_id');
         });
     }
 
