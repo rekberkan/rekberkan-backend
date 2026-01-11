@@ -107,6 +107,7 @@ class WebhookController extends Controller
             if ($deposit->escrow_id) {
                 $this->escrowService->fund(
                     escrowId: $deposit->escrow_id,
+                    userId: $deposit->user_id,
                     idempotencyKey: "deposit-{$deposit->id}"
                 );
             }
