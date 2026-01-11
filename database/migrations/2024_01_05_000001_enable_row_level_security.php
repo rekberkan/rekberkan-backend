@@ -22,7 +22,6 @@ return new class extends Migration
             'deposits',
             'withdrawals',
             'escrows',
-            'escrow_timelines',
             'chat_messages',
             'financial_messages',
             'ledger_lines',
@@ -35,16 +34,40 @@ return new class extends Migration
             // Policy: Users can only access their tenant's data
             DB::statement("
                 CREATE POLICY tenant_isolation_policy ON {$table}
-                USING (tenant_id = current_setting('app.tenant_id', TRUE)::uuid)
+                USING (tenant_id = current_setting('app.tenant_id', TRUE)::bigint)
             ");
             
             // Policy: Allow inserts with correct tenant_id
             DB::statement("
                 CREATE POLICY tenant_isolation_insert ON {$table}
                 FOR INSERT
-                WITH CHECK (tenant_id = current_setting('app.tenant_id', TRUE)::uuid)
+                WITH CHECK (tenant_id = current_setting('app.tenant_id', TRUE)::bigint)
             ");
         }
+
+        // Escrow timelines are scoped via escrows
+        DB::statement("ALTER TABLE escrow_timelines ENABLE ROW LEVEL SECURITY");
+        DB::statement("
+            CREATE POLICY escrow_timeline_policy ON escrow_timelines
+            USING (
+                EXISTS (
+                    SELECT 1 FROM escrows
+                    WHERE escrows.id = escrow_timelines.escrow_id
+                    AND escrows.tenant_id = current_setting('app.tenant_id', TRUE)::uuid
+                )
+            )
+        ");
+        DB::statement("
+            CREATE POLICY escrow_timeline_insert ON escrow_timelines
+            FOR INSERT
+            WITH CHECK (
+                EXISTS (
+                    SELECT 1 FROM escrows
+                    WHERE escrows.id = escrow_timelines.escrow_id
+                    AND escrows.tenant_id = current_setting('app.tenant_id', TRUE)::uuid
+                )
+            )
+        ");
 
         // Platform wallets are not tenant-scoped (system-level)
         DB::statement("ALTER TABLE platform_wallets ENABLE ROW LEVEL SECURITY");
@@ -53,16 +76,12 @@ return new class extends Migration
             USING (true)
         ");
 
-        // Posting batches use tenant_id from related messages
+        // Posting batches are tenant-scoped by tenant_id
         DB::statement("ALTER TABLE posting_batches ENABLE ROW LEVEL SECURITY");
         DB::statement("
             CREATE POLICY posting_batch_policy ON posting_batches
             USING (
-                EXISTS (
-                    SELECT 1 FROM financial_messages
-                    WHERE financial_messages.id = posting_batches.financial_message_id
-                    AND financial_messages.tenant_id = current_setting('app.tenant_id', TRUE)::uuid
-                )
+                tenant_id = current_setting('app.tenant_id', TRUE)::uuid
             )
         ");
     }
@@ -78,7 +97,6 @@ return new class extends Migration
             'deposits',
             'withdrawals',
             'escrows',
-            'escrow_timelines',
             'chat_messages',
             'financial_messages',
             'ledger_lines',
@@ -94,5 +112,9 @@ return new class extends Migration
             DB::statement("DROP POLICY IF EXISTS posting_batch_policy ON {$table}");
             DB::statement("ALTER TABLE {$table} DISABLE ROW LEVEL SECURITY");
         }
+
+        DB::statement("DROP POLICY IF EXISTS escrow_timeline_policy ON escrow_timelines");
+        DB::statement("DROP POLICY IF EXISTS escrow_timeline_insert ON escrow_timelines");
+        DB::statement("ALTER TABLE escrow_timelines DISABLE ROW LEVEL SECURITY");
     }
 };

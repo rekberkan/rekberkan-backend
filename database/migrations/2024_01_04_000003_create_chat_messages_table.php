@@ -10,6 +10,7 @@ return new class extends Migration
     {
         Schema::create('chat_messages', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('tenant_id')->constrained()->onDelete('cascade');
             $table->foreignUuid('escrow_id')->constrained()->onDelete('cascade');
             $table->morphs('sender');
             $table->text('body');

@@ -25,7 +25,7 @@ return new class extends Migration
             
             // Related entity (e.g., Escrow, Deposit, Withdrawal)
             $table->string('related_entity_type')->nullable();
-            $table->unsignedBigInteger('related_entity_id')->nullable();
+            $table->uuid('related_entity_id')->nullable();
             $table->string('originating_channel')->nullable();
             
             // Lifecycle linking
