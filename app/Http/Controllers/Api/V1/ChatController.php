@@ -3,32 +3,41 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\ValidatesTenantOwnership;
 use App\Application\Services\ChatService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
 class ChatController extends Controller
 {
+    use ValidatesTenantOwnership;
+
     public function __construct(
         private ChatService $chatService
     ) {}
 
     /**
-     * List user's chat rooms.
-     * 
-     * NEW CONTROLLER: Expose ChatService untuk escrow messaging.
+     * List user's chat rooms with tenant scoping
      */
     public function index(Request $request)
     {
         try {
             $userId = $request->user()->id;
-            $chats = $this->chatService->getUserChats($userId);
+            $tenantId = $this->getCurrentTenantId();
+            $this->validateUserTenant($tenantId);
+
+            $chats = $this->chatService->getUserChatsWithTenant($userId, $tenantId);
 
             return response()->json([
                 'success' => true,
                 'data' => $chats,
             ]);
         } catch (\Exception $e) {
+            Log::error('Failed to fetch chats', [
+                'user_id' => $request->user()->id,
+                'error' => $e->getMessage(),
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch chats',
@@ -37,22 +46,26 @@ class ChatController extends Controller
     }
 
     /**
-     * Get messages from specific chat.
+     * Get messages from specific chat with authorization check
      */
     public function show(Request $request, string $chatId)
     {
         try {
             $userId = $request->user()->id;
+            $tenantId = $this->getCurrentTenantId();
+            $this->validateUserTenant($tenantId);
+
             $perPage = min((int) $request->input('per_page', 50), 100);
 
-            $chat = $this->chatService->getOrCreateChatForEscrow($chatId);
-
-            if (!$this->chatService->canAccessChat($chat->id, $userId)) {
+            // Check access BEFORE getting/creating chat
+            if (!$this->chatService->canUserAccessChat($chatId, $userId, $tenantId)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',
                 ], 403);
             }
+
+            $chat = $this->chatService->getOrCreateChatForEscrowWithTenant($chatId, $tenantId);
 
             $messages = $this->chatService->getChatMessages(
                 $chat->id,
@@ -64,6 +77,12 @@ class ChatController extends Controller
                 'data' => $messages,
             ]);
         } catch (\Exception $e) {
+            Log::error('Failed to fetch messages', [
+                'chat_id' => $chatId,
+                'user_id' => $request->user()->id,
+                'error' => $e->getMessage(),
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch messages',
@@ -72,7 +91,7 @@ class ChatController extends Controller
     }
 
     /**
-     * Send message to chat.
+     * Send message to chat with authorization
      */
     public function sendMessage(Request $request, string $chatId)
     {
@@ -83,14 +102,18 @@ class ChatController extends Controller
 
         try {
             $userId = $request->user()->id;
-            $chat = $this->chatService->getOrCreateChatForEscrow($chatId);
+            $tenantId = $this->getCurrentTenantId();
+            $this->validateUserTenant($tenantId);
 
-            if (!$this->chatService->canAccessChat($chat->id, $userId)) {
+            // Check access before sending
+            if (!$this->chatService->canUserAccessChat($chatId, $userId, $tenantId)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',
                 ], 403);
             }
+
+            $chat = $this->chatService->getOrCreateChatForEscrowWithTenant($chatId, $tenantId);
 
             $message = $this->chatService->sendMessage(
                 $chat->id,
@@ -118,20 +141,24 @@ class ChatController extends Controller
     }
 
     /**
-     * Mark messages as read.
+     * Mark messages as read with authorization
      */
     public function markAsRead(Request $request, string $chatId)
     {
         try {
             $userId = $request->user()->id;
-            $chat = $this->chatService->getOrCreateChatForEscrow($chatId);
+            $tenantId = $this->getCurrentTenantId();
+            $this->validateUserTenant($tenantId);
 
-            if (!$this->chatService->canAccessChat($chat->id, $userId)) {
+            // Check access before marking as read
+            if (!$this->chatService->canUserAccessChat($chatId, $userId, $tenantId)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',
                 ], 403);
             }
+
+            $chat = $this->chatService->getOrCreateChatForEscrowWithTenant($chatId, $tenantId);
 
             $this->chatService->markAsRead($chat->id, $userId);
 
@@ -140,6 +167,12 @@ class ChatController extends Controller
                 'message' => 'Messages marked as read',
             ]);
         } catch (\Exception $e) {
+            Log::error('Failed to mark as read', [
+                'chat_id' => $chatId,
+                'user_id' => $request->user()->id,
+                'error' => $e->getMessage(),
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to mark as read',
