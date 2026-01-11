@@ -15,16 +15,15 @@ return new class extends Migration
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->string('engine_version', 20);
             $table->unsignedTinyInteger('risk_score');
-            $table->string('risk_tier', 20);
+            $table->enum('risk_tier', ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']);
             $table->json('signals');
             $table->json('actions_taken');
-            $table->json('metadata')->nullable();
+            $table->json('metadata');
             $table->timestamp('assessed_at');
-            $table->timestamps();
 
-            $table->index(['tenant_id', 'user_id']);
-            $table->index(['tenant_id', 'assessed_at']);
-            $table->index('risk_tier');
+            $table->index(['tenant_id', 'user_id', 'assessed_at']);
+            $table->index(['tenant_id', 'risk_tier']);
+            $table->index('assessed_at');
         });
 
         DB::statement("ALTER TABLE risk_assessments ENABLE ROW LEVEL SECURITY");
